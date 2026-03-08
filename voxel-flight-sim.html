@@ -1,0 +1,2197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voxel Flight Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root {
+  --accent: #e84e12;
+  --blue:   #3f9dd1;
+  --green:  #4ade80;
+  --dim:    rgba(200,220,240,0.35);
+  --panel:  rgba(8,12,18,0.82);
+  --border: rgba(30,40,55,0.9);
+}
+* { box-sizing: border-box; margin:0; padding:0; }
+html, body { width:100%; height:100%; overflow:hidden; background:#000; }
+
+/* ── 3-D canvas fills the screen ── */
+#c { position:fixed; inset:0; display:block; width:100%!important; height:100%!important; }
+
+/* ── Cockpit frame (decorative) ── */
+#cockpit-frame {
+  position:fixed; inset:0; pointer-events:none; z-index:5;
+  background:
+    radial-gradient(ellipse 110% 60% at 50% 110%, rgba(0,0,0,0.85) 0%, transparent 55%),
+    radial-gradient(ellipse 30% 100% at 0% 50%,   rgba(0,0,0,0.6)  0%, transparent 50%),
+    radial-gradient(ellipse 30% 100% at 100% 50%, rgba(0,0,0,0.6)  0%, transparent 50%);
+}
+/* Scanlines */
+#cockpit-frame::after {
+  content:''; position:absolute; inset:0;
+  background: repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px);
+}
+
+/* ── Crosshair ── */
+#xhair {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  z-index:10; pointer-events:none; opacity:0.55;
+}
+#xhair::before, #xhair::after {
+  content:''; position:absolute; background:var(--accent);
+}
+#xhair::before { width:20px; height:1px; top:0; left:-10px; }
+#xhair::after  { width:1px; height:20px; top:-10px; left:0; }
+
+/* ── HUD top-left info ── */
+#hud-info {
+  position:fixed; top:16px; left:20px; z-index:20;
+  font-family:'Share Tech Mono',monospace; font-size:11px;
+  color:var(--dim); line-height:2; pointer-events:none;
+  text-shadow: 0 0 8px rgba(63,157,209,0.6);
+}
+#hud-info b { color:#c8d8e8; }
+#hud-speed  { color:var(--green); }
+#hud-alt    { color:var(--blue); }
+#hud-warn   { color:var(--accent); animation:blink .5s infinite; display:none; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+/* ── HUD top-right ── */
+#hud-hdg {
+  position:fixed; top:16px; right:20px; z-index:20;
+  font-family:'Orbitron',sans-serif; font-size:22px; font-weight:700;
+  color:#c8d8e8; pointer-events:none;
+  text-shadow: 0 0 16px rgba(232,78,18,0.5);
+  letter-spacing:3px;
+}
+#hud-hdg-sub {
+  font-family:'Share Tech Mono',monospace; font-size:10px;
+  color:var(--dim); letter-spacing:4px; text-align:right;
+  margin-top:2px;
+}
+
+/* ── Instrument panel — bottom HUD ── */
+#panel {
+  position:fixed; bottom:0; left:0; right:0; z-index:20;
+  display:flex; align-items:flex-end; justify-content:center;
+  gap:12px; padding:0 20px 10px;
+  pointer-events:none;
+  background: linear-gradient(to top, rgba(4,6,10,0.92) 0%, transparent 100%);
+}
+
+.inst-wrap {
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+}
+.inst-label {
+  font-family:'Orbitron',sans-serif; font-size:6px; letter-spacing:4px;
+  color:rgba(90,106,126,0.8); text-transform:uppercase;
+}
+.inst-gauge {
+  position:relative;
+  filter:drop-shadow(0 0 10px rgba(63,157,209,0.18));
+}
+.inst-gauge svg { display:block; }
+.inst-gauge .roll-ovl {
+  position:absolute; inset:0; pointer-events:none;
+}
+.inst-gauge .roll-ovl svg { width:100%; height:100%; }
+
+.dc-strip {
+  display:flex; gap:4px;
+}
+.dc {
+  background:var(--panel); border:1px solid var(--border);
+  padding:3px 6px; position:relative; overflow:hidden; min-width:52px;
+}
+.dc::before { content:''; position:absolute; top:0;left:0; width:2px; height:100%; }
+.dc.p::before { background:var(--accent); }
+.dc.b::before { background:var(--blue); }
+.dc.g::before { background:var(--green); }
+.dc.y::before { background:#facc15; }
+.dclabel { font-size:6px; letter-spacing:2px; color:rgba(90,106,126,0.9); text-transform:uppercase; }
+.dcval {
+  font-family:'Orbitron',sans-serif; font-size:11px; font-weight:700;
+  color:#c8d8e8; line-height:1.1;
+}
+.dcval.pos { color:var(--accent); }
+.dcval.neg { color:var(--blue); }
+
+/* ── Altitude tape (right side) ── */
+#alt-tape-wrap {
+  position:fixed; right:20px; top:50%; transform:translateY(-50%);
+  z-index:20; pointer-events:none;
+  display:flex; flex-direction:column; align-items:flex-end; gap:6px;
+}
+#alt-tape {
+  width:54px; height:220px; position:relative; overflow:hidden;
+  background:rgba(4,6,10,0.75); border:1px solid rgba(30,42,58,0.9);
+}
+#alt-tape-marks {
+  position:absolute; left:0; right:0;
+  font-family:'Share Tech Mono',monospace; font-size:8px;
+  color:rgba(200,220,240,0.45); text-align:right; padding-right:4px;
+  transition: top 0.05s linear;
+}
+#alt-tape-marks .alt-mark { height:20px; line-height:20px; border-top:1px solid rgba(63,157,209,0.15); }
+#alt-tape-marks .alt-mark.major { color:rgba(200,220,240,0.75); border-top-color:rgba(63,157,209,0.35); }
+/* centre bug */
+#alt-tape::after {
+  content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
+  width:100%; height:1px; background:rgba(232,78,18,0.7);
+  box-shadow:0 0 6px rgba(232,78,18,0.5);
+}
+#alt-readout {
+  font-family:'Orbitron',sans-serif; font-size:14px; font-weight:700;
+  color:var(--blue); letter-spacing:2px; text-align:right;
+  text-shadow:0 0 10px rgba(63,157,209,0.5);
+}
+#alt-readout span { font-size:8px; color:var(--dim); letter-spacing:3px; }
+#vspeed-readout {
+  font-family:'Share Tech Mono',monospace; font-size:9px;
+  letter-spacing:1px; text-align:right; color:var(--dim);
+}
+#vspeed-readout.climb { color:var(--green); }
+#vspeed-readout.desc  { color:var(--accent); }
+
+/* ── GPWS callout overlay ── */
+#gpws {
+  position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+  z-index:50; pointer-events:none; text-align:center;
+  display:none;
+}
+#gpws-text {
+  font-family:'Orbitron',sans-serif; font-weight:900; letter-spacing:6px;
+  text-transform:uppercase; line-height:1.2;
+  animation: gpws-flash 0.4s infinite;
+}
+#gpws-sub {
+  font-family:'Share Tech Mono',monospace; font-size:11px; letter-spacing:3px;
+  margin-top:6px; opacity:0.8;
+}
+@keyframes gpws-flash {
+  0%,100% { opacity:1; }
+  50%      { opacity:0.25; }
+}
+/* red screen tint when GPWS fires */
+#gpws-tint {
+  position:fixed; inset:0; z-index:45; pointer-events:none;
+  background:rgba(200,20,10,0.0); transition:background .2s;
+}
+#gpws-tint.active { background:rgba(200,20,10,0.08); }
+#minimap {
+  position:fixed; top:16px; left:50%; transform:translateX(-50%);
+  z-index:20; pointer-events:none;
+}
+#minimap canvas {
+  border-radius:50%;
+  border:1px solid rgba(63,157,209,0.4);
+  box-shadow:0 0 12px rgba(63,157,209,0.15), inset 0 0 20px rgba(0,0,0,0.6);
+  display:block;
+}
+#minimap-label {
+  text-align:center; margin-top:4px;
+  font-family:'Orbitron',sans-serif; font-size:6px; letter-spacing:3px;
+  color:rgba(90,106,126,0.7); text-transform:uppercase;
+}
+#gp-bar {
+  position:fixed; bottom:0; left:0; right:0; z-index:30;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  padding:3px 0 4px;
+  font-family:'Share Tech Mono',monospace; font-size:8px; letter-spacing:3px;
+  color:rgba(90,106,126,0.7); text-transform:uppercase;
+  border-top:1px solid rgba(30,40,55,0.5);
+  pointer-events:none;
+}
+.gpdot { width:6px;height:6px;border-radius:50%;background:rgba(58,74,94,1); }
+.gpdot.on { background:var(--green);box-shadow:0 0 6px var(--green);animation:blink 2s infinite; }
+
+/* ── Start overlay ── */
+#start-overlay {
+  position:fixed; inset:0; z-index:100;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:rgba(4,6,10,0.96);
+  font-family:'Orbitron',sans-serif;
+  overflow-y:auto;
+}
+#start-overlay h1 {
+  font-size:28px; font-weight:900; letter-spacing:8px;
+  color:#c8d8e8; text-transform:uppercase;
+  text-shadow:0 0 30px rgba(63,157,209,0.4);
+  margin-bottom:6px;
+}
+#start-overlay h2 {
+  font-size:10px; font-weight:400; letter-spacing:6px;
+  color:var(--accent); text-transform:uppercase; margin-bottom:32px;
+}
+
+/* Option groups */
+.opt-grid {
+  display:grid; grid-template-columns:repeat(3,1fr);
+  gap:20px; margin-bottom:28px; width:680px; max-width:95vw;
+}
+.opt-group {
+  background:rgba(14,18,26,0.8); border:1px solid rgba(30,42,58,0.9);
+  padding:16px 18px;
+}
+.opt-group-title {
+  font-size:7px; letter-spacing:4px; color:var(--accent);
+  text-transform:uppercase; margin-bottom:14px;
+  border-bottom:1px solid rgba(232,78,18,0.2); padding-bottom:6px;
+}
+.opt-row { display:flex; flex-direction:column; gap:10px; }
+.opt-btn-row { display:flex; gap:6px; flex-wrap:wrap; }
+.opt-btn {
+  flex:1; min-width:0; padding:7px 4px;
+  border:1px solid rgba(30,42,58,0.9); background:transparent;
+  font-family:'Orbitron',sans-serif; font-size:7px; letter-spacing:2px;
+  color:rgba(90,106,126,0.9); cursor:pointer; text-transform:uppercase;
+  transition:all .15s; white-space:nowrap;
+}
+.opt-btn:hover  { border-color:rgba(63,157,209,0.5); color:#c8d8e8; }
+.opt-btn.sel    {
+  border-color:var(--accent); color:var(--accent);
+  background:rgba(232,78,18,0.1);
+  box-shadow:0 0 10px rgba(232,78,18,0.15);
+}
+
+/* Slider */
+.opt-slider-row { display:flex; flex-direction:column; gap:6px; }
+.opt-slider-label {
+  display:flex; justify-content:space-between;
+  font-family:'Share Tech Mono',monospace; font-size:9px;
+  color:rgba(200,220,240,0.5); letter-spacing:1px;
+}
+.opt-slider-label b { color:#c8d8e8; }
+input[type=range] {
+  width:100%; -webkit-appearance:none; appearance:none;
+  height:3px; border-radius:2px;
+  background:rgba(30,42,58,0.9); outline:none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none; width:12px; height:12px; border-radius:50%;
+  background:var(--accent); cursor:pointer;
+  box-shadow:0 0 6px rgba(232,78,18,0.5);
+}
+
+.start-key {
+  font-family:'Share Tech Mono',monospace; font-size:9px; letter-spacing:2px;
+  color:rgba(200,220,240,0.4); line-height:2; text-align:center;
+  margin-bottom:4px;
+}
+.start-key b { color:rgba(200,220,240,0.7); }
+#start-btn {
+  margin-top:20px; padding:12px 56px;
+  border:1px solid var(--accent); background:transparent;
+  font-family:'Orbitron',sans-serif; font-size:12px; letter-spacing:6px;
+  color:var(--accent); cursor:pointer; text-transform:uppercase;
+  transition:all .2s;
+}
+#start-btn:hover { background:rgba(232,78,18,0.12); box-shadow:0 0 24px rgba(232,78,18,0.3); }
+</style>
+</head>
+<body>
+
+<!-- Three.js canvas -->
+<canvas id="c"></canvas>
+
+<!-- Cockpit overlay -->
+<div id="cockpit-frame"></div>
+<div id="xhair"></div>
+
+<!-- Altitude tape (right side) -->
+<div id="alt-tape-wrap">
+  <div id="alt-readout"><span>ALT</span><br><b id="alt-m">0</b> <span>m</span></div>
+  <div id="alt-tape"><div id="alt-tape-marks"></div></div>
+  <div id="vspeed-readout">+0 m/s</div>
+</div>
+
+<!-- GPWS screen tint + callout -->
+<div id="gpws-tint"></div>
+<div id="gpws">
+  <div id="gpws-text"></div>
+  <div id="gpws-sub"></div>
+</div>
+
+<div id="minimap">
+  <canvas id="mm-canvas" width="120" height="120"></canvas>
+  <div id="minimap-label">TERRAIN MAP</div>
+</div>
+
+<div id="hud-info">
+  <div>SPD &nbsp;<b id="hud-speed">---</b> kts</div>
+  <div>ALT &nbsp;<b id="hud-alt">----</b> m</div>
+  <div>POS &nbsp;<b id="hud-pos">---,---</b></div>
+  <div id="hud-warn">⚠ TERRAIN</div>
+</div>
+<div id="hud-hdg">
+  <div id="hud-hdg-val">000°</div>
+  <div id="hud-hdg-sub">HEADING</div>
+</div>
+
+<!-- Instrument panel -->
+<div id="panel">
+
+  <!-- Attitude Indicator -->
+  <div class="inst-wrap">
+    <div class="inst-label">Attitude</div>
+    <div class="inst-gauge" style="width:140px;height:140px;">
+      <svg viewBox="0 0 248.4 247" width="140" height="140"><svg version="1.1"
+	 id="p-svg8" xmlns:svg="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:cc="http://creativecommons.org/ns#" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:dc="http://purl.org/dc/elements/1.1/"
+	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" viewBox="0 0 248.4 247"
+	 style="enable-background:new 0 0 248.4 247;" xml:space="preserve">
+<defs>
+<style type="text/css">
+	.pst0{ fill-rule: evenodd;
+        stroke: url(#p-linear-gradient);
+        stroke-miterlimit: 6.2;
+        stroke-width: 2px;}
+	.pst1{clip-path:url(#p-SVGID_00000044177708356505530060000001441812081550896045_);}
+	.pst2{fill-rule:evenodd;clip-rule:evenodd;fill:#734021;}
+	.pst3{fill-rule:evenodd;clip-rule:evenodd;fill:#3F9DD1;stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst4{display:none;fill:#3F9DD1;}
+	.pst5{display:none;fill-rule:evenodd;clip-rule:evenodd;fill:#995A27;}
+	.pst6{fill:#FFFFFF;}
+	.pst7{fill-rule:evenodd;clip-rule:evenodd;fill:#E84E12;}
+	.pst8{fill:none;stroke:#231F20;stroke-width:10;stroke-miterlimit:11.3;}
+	.pst9{opacity:0.7;}
+	.pst10{fill:none;stroke:#FFFFFF;stroke-width:3.4;stroke-miterlimit:3;}
+	.pst11{fill-rule:evenodd;clip-rule:evenodd;fill:#FFFFFF;}
+	.pst12{display:none;fill:none;stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst13{fill-rule:evenodd;clip-rule:evenodd;fill:#282725;stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst14{fill-rule:evenodd;clip-rule:evenodd;fill:#333333;stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst15{fill-rule:evenodd;clip-rule:evenodd;fill:#1A1A1A;}
+	
+		.pst16{fill-rule:evenodd;clip-rule:evenodd;fill:url(#p-rect1229_00000140728955256446771750000016905676216459746180_);stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst17{fill:#E84E12;}
+	.pst18{fill-rule:evenodd;clip-rule:evenodd;fill:#282725;}
+	.pst19{fill:none;stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;}
+	.pst20{fill:url(#p-path1259_00000021838557709765504820000004390939295585283995_);}
+	.pst21{fill:#1A1A1A;stroke:#666666;stroke-width:0.2;stroke-miterlimit:6.2;}
+	.pst22{fill-rule:evenodd;clip-rule:evenodd;stroke:#666666;stroke-width:0.1;stroke-miterlimit:6.2;}
+	.pst23{display:none;}
+	.pst24{display:inline;fill:url(#p-circle2789_00000083052530955838696530000000765191727923264133_);}
+	.pst25{display:inline;opacity:0.5;enable-background:new    ;}
+	.pst26{fill-rule:evenodd;clip-rule:evenodd;fill:#F9F9F9;}
+</style>
+
+	 <linearGradient id="p-linear-gradient" x1="18.4" y1="231.4" x2="230.7" y2="19" gradientTransform="translate(0 248) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#686868"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+	
+</defs>
+
+<path id="p-bezel" class="pst0" d="M16,21.3c.9-2.1,3.8-4.9,6.6-5.9L62.3,0h122.8l42.7,15.2c2.6,1.1,4.4,3.6,5.4,6.3l13.5,40v122.6l-14.3,40.7c-2,3.5-3,4.3-6.8,6.3,0,0-21.8,11.5-40.5,14.3H62.4c-12.9.3-39.9-13.8-39.9-13.8-2.6-1.3-5.5-4.9-6.4-7.6,0,0-15.1-31.1-15.1-39.9V61.6l15.1-40.3h0,0Z" inkscape:connector-curvature="0" sodipodi:nodetypes="ccccccccccccccccc"/>
+<g>
+	<defs>
+		<circle id="p-SVGID_1_" cx="125" cy="123.9" r="109.5"/>
+	</defs>
+	<clipPath id="p-SVGID_00000116197087603358000660000008888779206875632007_">
+		<use xlink:href="#p-SVGID_1_"  style="overflow:visible;"/>
+	</clipPath>
+	<g style="clip-path:url(#p-SVGID_00000116197087603358000660000008888779206875632007_);">
+		<g id="p-indicator">
+			<path id="p-rect1930" inkscape:connector-curvature="0" class="pst2" d="M-0.7,124.6v123.9h249.8V124.6H-0.7z"/>
+			<path id="p-rect19301" inkscape:connector-curvature="0" class="pst3" d="M-0.7-40.3v164.9h249.8V-40.3H-0.7z"/>
+			<circle id="p-circle1465" class="pst4" cx="125" cy="124" r="77.5"/>
+			<path id="p-path1571" inkscape:connector-curvature="0" class="pst5" d="M47.4,124.6c0,1.6,0,3.2,0.2,4.9c0.2,2.6,0.5,5.1,0.9,7.7
+				c0.4,2.5,1,5.1,1.7,7.6s1.5,4.9,2.4,7.4c0.9,2.4,2,4.8,3.2,7.1s2.5,4.5,3.9,6.7s2.9,4.3,4.5,6.3c1.6,2,3.3,4,5.1,5.8
+				c1.8,1.9,3.7,3.6,5.7,5.3s4,3.2,6.2,4.7c2.1,1.5,4.3,2.8,6.6,4.1c2.3,1.2,4.6,2.4,7,3.4s4.8,1.9,7.3,2.7s5,1.4,7.5,1.9
+				s5.1,0.9,7.7,1.2s5.2,0.4,7.7,0.4s3.7,0,5.5-0.2c2.6-0.2,5.1-0.5,7.7-0.9c2.5-0.4,5.1-1,7.6-1.7s4.9-1.5,7.4-2.4
+				c2.4-0.9,4.8-2,7.1-3.2s4.5-2.5,6.7-3.9s4.3-2.9,6.3-4.5s4-3.3,5.8-5.1s3.6-3.7,5.3-5.7s3.2-4,4.7-6.2c1.5-2.1,2.8-4.3,4.1-6.6
+				c1.2-2.3,2.4-4.6,3.4-7s1.9-4.8,2.7-7.3s1.4-5,1.9-7.5s0.9-5.1,1.2-7.7c0.2-2.4,0.3-4.7,0.4-7.1H47.4V124.6L47.4,124.6z"/>
+			<g id="p-text1471">
+				<path id="p-path1697" inkscape:connector-curvature="0" class="pst6" d="M82.1,89.6v0.8h-4.5v-0.6c0-0.3,0.3-0.6,0.5-0.9
+					c0.3-0.3,0.6-0.6,1.1-1c0.7-0.6,1.2-1.1,1.5-1.4c0.3-0.4,0.4-0.7,0.4-1s0-0.6-0.4-0.8c-0.2-0.2-0.5-0.3-0.9-0.3s-0.7,0-1,0.4
+					s-0.4,0.6-0.4,1h-0.9c0-0.7,0.3-1.2,0.7-1.5c0.4-0.3,0.9-0.5,1.5-0.5s1.2,0.2,1.5,0.5s0.6,0.8,0.6,1.3s0,0.5-0.2,0.8
+					c0,0.3-0.3,0.5-0.6,0.8c-0.3,0.3-0.7,0.7-1.3,1.2c-0.5,0.4-0.8,0.7-1,0.9l-0.4,0.4h3.8L82.1,89.6z"/>
+				<path id="p-path1699" inkscape:connector-curvature="0" class="pst6" d="M83,87c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1s0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C83.4,89.1,83.1,88.2,83,87L83,87L83,87z M83.8,87
+					c0,1.1,0,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6s0.4-1.1,0.4-2.2s0-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5C84,85.1,83.9,85.9,83.8,87L83.8,87L83.8,87z"/>
+			</g>
+			<g id="p-text1475">
+				<path id="p-path1702" inkscape:connector-curvature="0" class="pst6" d="M168.9,89.6v0.8h-4.5v-0.6c0.1-0.3,0.3-0.6,0.5-0.9
+					c0.3-0.3,0.6-0.6,1.1-1c0.7-0.6,1.2-1.1,1.5-1.4c0.3-0.4,0.4-0.7,0.4-1s-0.1-0.6-0.4-0.8c-0.2-0.2-0.5-0.3-0.9-0.3s-0.7,0-1,0.4
+					s-0.4,0.6-0.4,1h-0.9c0-0.7,0.3-1.2,0.7-1.5s0.9-0.5,1.5-0.5s1.2,0.2,1.5,0.5c0.4,0.4,0.6,0.8,0.6,1.3s0,0.5-0.2,0.8
+					s-0.3,0.5-0.6,0.8s-0.7,0.7-1.3,1.2c-0.5,0.4-0.8,0.7-1,0.9c-0.1,0-0.3,0.3-0.4,0.4h3.8L168.9,89.6z"/>
+				<path id="p-path1704" inkscape:connector-curvature="0" class="pst6" d="M169.8,87c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1c0.1,0.4,0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C170.2,89.1,169.9,88.2,169.8,87L169.8,87L169.8,87z M170.7,87
+					c0,1.1,0.1,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6s0.4-1.1,0.4-2.2s-0.1-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5c-0.3,0.4-0.4,1.2-0.4,2.3C170.8,87,170.7,87,170.7,87z"/>
+			</g>
+			<g id="p-text1481">
+				<path id="p-path1687" inkscape:connector-curvature="0" class="pst6" d="M88.9,100.6h1.6v6.9h-1.1v-5.9h-0.5V100.6L88.9,100.6
+					L88.9,100.6z"/>
+				<path id="p-path1689" inkscape:connector-curvature="0" class="pst6" d="M91.5,104.2c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1s0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C91.9,106.3,91.6,105.4,91.5,104.2L91.5,104.2L91.5,104.2z
+					 M92.4,104.2c0,1.1,0,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6s0.4-1.1,0.4-2.2s0-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5C92.6,102.3,92.5,103.1,92.4,104.2L92.4,104.2L92.4,104.2z"/>
+			</g>
+			<g id="p-text1487">
+				<path id="p-path1692" inkscape:connector-curvature="0" class="pst6" d="M157,100.6h1.6v6.9h-1.1v-5.9H157V100.6L157,100.6
+					L157,100.6z"/>
+				<path id="p-path1694" inkscape:connector-curvature="0" class="pst6" d="M159.6,104.2c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1c0.1,0.4,0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C160,106.3,159.7,105.4,159.6,104.2L159.6,104.2L159.6,104.2z
+					 M160.5,104.2c0,1.1,0.1,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6s0.4-1.1,0.4-2.2s-0.1-1.9-0.4-2.2
+					c-0.3-0.4-0.6-0.5-1-0.5s-0.7,0.2-0.9,0.5c-0.3,0.4-0.4,1.2-0.4,2.3C160.6,104.2,160.5,104.2,160.5,104.2z"/>
+			</g>
+			<g id="p-text1493">
+				<path id="p-path1684" inkscape:connector-curvature="0" class="pst6" d="M91.1,147c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0.1,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1s0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C91.5,149.1,91.2,148.2,91.1,147L91.1,147L91.1,147z M92,147
+					c0,1.1,0,1.8,0.4,2.2s0.6,0.5,1,0.5s0.7-0.2,1-0.6c0.3-0.4,0.4-1.1,0.4-2.2s0-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5C92.2,145.1,92.1,145.9,92,147L92,147L92,147z"/>
+				<path id="p-path1682" inkscape:connector-curvature="0" class="pst6" d="M88.5,143.4h1.6v6.9H89v-5.9h-0.5v-1.1l0,0V143.4z"/>
+			</g>
+			<g id="p-text1499">
+				<path id="p-path1677" inkscape:connector-curvature="0" class="pst6" d="M157.3,143.4h1.6v6.9h-1.1v-5.9h-0.5v-1.1l0,0V143.4z"/>
+				<path id="p-path1679" inkscape:connector-curvature="0" class="pst6" d="M159.9,147c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0.1,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1c0.1,0.4,0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C160.3,149.1,160,148.2,159.9,147L159.9,147L159.9,147z M160.7,147
+					c0,1.1,0.1,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6c0.3-0.4,0.4-1.1,0.4-2.2s-0.1-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5c-0.3,0.4-0.4,1.2-0.4,2.3H160.7z"/>
+			</g>
+			<g id="p-text1503">
+				<path id="p-path1672" inkscape:connector-curvature="0" class="pst6" d="M82.3,166.6v0.8h-4.5v-0.6c0-0.3,0.3-0.6,0.5-0.9
+					c0.3-0.3,0.6-0.6,1.1-1c0.7-0.6,1.2-1.1,1.5-1.4c0.3-0.4,0.4-0.7,0.4-1s0-0.6-0.4-0.8c-0.2-0.2-0.5-0.3-0.9-0.3s-0.7,0.1-1,0.4
+					c-0.2,0.2-0.4,0.6-0.4,1h-0.9c0-0.7,0.3-1.2,0.7-1.5c0.4-0.3,0.9-0.5,1.5-0.5s1.2,0.2,1.5,0.5c0.4,0.4,0.6,0.8,0.6,1.3
+					s0,0.5-0.2,0.8s-0.3,0.5-0.6,0.8c-0.3,0.3-0.7,0.7-1.3,1.2c-0.5,0.4-0.8,0.7-1,0.9c0,0.1-0.3,0.3-0.4,0.4L82.3,166.6L82.3,166.6
+					z"/>
+				<path id="p-path1674" inkscape:connector-curvature="0" class="pst6" d="M83.2,164.1c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0.1,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1s0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C83.6,166.2,83.3,165.3,83.2,164.1L83.2,164.1L83.2,164.1z
+					 M84,164.1c0,1.1,0,1.8,0.4,2.2s0.6,0.5,1,0.5s0.7-0.2,1-0.6c0.3-0.4,0.4-1.1,0.4-2.2s0-1.9-0.4-2.2c-0.3-0.4-0.6-0.5-1-0.5
+					s-0.7,0.2-0.9,0.5C84.2,162.2,84.1,163,84,164.1L84,164.1L84,164.1z"/>
+			</g>
+			<g id="p-text1507">
+				<path id="p-path1667" inkscape:connector-curvature="0" class="pst6" d="M168.8,166.6v0.8h-4.5v-0.6c0.1-0.3,0.3-0.6,0.5-0.9
+					c0.3-0.3,0.6-0.6,1.1-1c0.7-0.6,1.2-1.1,1.5-1.4c0.3-0.4,0.4-0.7,0.4-1s-0.1-0.6-0.4-0.8c-0.2-0.2-0.5-0.3-0.9-0.3
+					s-0.7,0.1-1,0.4c-0.2,0.2-0.4,0.6-0.4,1h-0.9c0-0.7,0.3-1.2,0.7-1.5s0.9-0.5,1.5-0.5s1.2,0.2,1.5,0.5s0.6,0.8,0.6,1.3
+					s0,0.5-0.2,0.8s-0.3,0.5-0.6,0.8s-0.7,0.7-1.3,1.2c-0.5,0.4-0.8,0.7-1,0.9l-0.4,0.4L168.8,166.6L168.8,166.6z"/>
+				<path id="p-path1669" inkscape:connector-curvature="0" class="pst6" d="M169.7,164.1c0-0.8,0-1.4,0.2-1.9s0.4-0.9,0.7-1.1
+					c0.3-0.3,0.7-0.4,1.2-0.4s0.7,0,1,0.2c0.3,0.1,0.5,0.4,0.7,0.6c0.2,0.3,0.3,0.6,0.4,1c0.1,0.4,0.2,0.9,0.2,1.6s0,1.4-0.2,1.9
+					s-0.4,0.9-0.7,1.1c-0.3,0.3-0.7,0.4-1.2,0.4s-1.2-0.2-1.5-0.7C170.1,166.2,169.8,165.3,169.7,164.1L169.7,164.1L169.7,164.1z
+					 M170.5,164.1c0,1.1,0.1,1.8,0.4,2.2c0.3,0.4,0.6,0.5,1,0.5s0.7-0.2,1-0.6c0.3-0.4,0.4-1.1,0.4-2.2s-0.1-1.9-0.4-2.2
+					c-0.3-0.4-0.6-0.5-1-0.5s-0.7,0.2-0.9,0.5c-0.3,0.4-0.4,1.2-0.4,2.3H170.5z"/>
+			</g>
+			<rect id="p-rect1509" x="92.2" y="164.1" class="pst6" width="66.7" height="1.2"/>
+			<rect id="p-rect1511" x="106.2" y="155.4" class="pst6" width="38.6" height="1.3"/>
+			<rect id="p-rect1513" x="100.9" y="146.8" class="pst6" width="49.2" height="1.2"/>
+			<rect id="p-rect1515" x="110.1" y="138.4" class="pst6" width="30.8" height="1.3"/>
+			<rect id="p-rect1517" x="110.7" y="112.6" class="pst6" width="29.5" height="1.3"/>
+			<rect id="p-rect1519" x="101.4" y="104.2" class="pst6" width="48.1" height="1.2"/>
+			<rect id="p-rect1521" x="105.6" y="95.4" class="pst6" width="39.7" height="1.3"/>
+			<rect id="p-rect1523" x="93" y="86.7" class="pst6" width="65" height="1.2"/>
+			<rect id="p-rect1525" x="106.4" y="77.9" class="pst6" width="38.2" height="1.3"/>
+			<rect id="p-rect1527" x="47.8" y="124.4" class="pst6" width="154.3" height="3.3"/>
+			<path id="p-path1531" inkscape:connector-curvature="0" class="pst7" d="M126.3,35.1l-8.2,23h16.3L126.3,35.1L126.3,35.1L126.3,35.1
+				z M126.3,45.9l2.8,7.9h-5.6C123.5,53.8,126.3,45.9,126.3,45.9z"/>
+		</g>
+	</g>
+</g>
+<g id="p-screwsandglass">
+	<circle id="p-shadow" class="pst8" cx="125" cy="123.9" r="109.5"/>
+	<g id="p-markings" class="pst9">
+		<g id="p-g2090">
+			<path id="p-path2021" inkscape:connector-curvature="0" class="pst10" d="M125,127.6l53.8,53.2"/>
+			<path id="p-path2038" inkscape:connector-curvature="0" class="pst10" d="M125,127.6l-53.8,53.2"/>
+		</g>
+		<path id="p-path2093" inkscape:connector-curvature="0" class="pst10" d="M125,127.6l67.1,36.2"/>
+		<path id="p-path2095" inkscape:connector-curvature="0" class="pst10" d="M125,127.6l-67.1,36.2"/>
+		<path id="p-path1885" inkscape:connector-curvature="0" class="pst11" d="M194.9,90.6l24.2-13l-1.5-2.8l-24.2,12.9
+			c0.2,0.4,0.4,0.7,0.6,1.1C194.3,89.4,194.5,90,194.9,90.6L194.9,90.6L194.9,90.6z"/>
+		<path id="p-path1887" inkscape:connector-curvature="0" class="pst11" d="M57.3,86.2L34.1,73.3l-1.6,2.8l23.3,13
+			c0.4-0.8,0.7-1.5,1.1-2.3C56.9,86.6,57.1,86.4,57.3,86.2L57.3,86.2z"/>
+		<path id="p-path1889" inkscape:connector-curvature="0" class="pst11" d="M73.2,34.4L70.5,36l13.2,22.4c0.9-0.5,1.8-1.1,2.8-1.6
+			L73.2,34.4z"/>
+		<path id="p-path1891" inkscape:connector-curvature="0" class="pst11" d="M95.2,32.4l-3,1l6.1,17.8c1-0.4,2-0.7,3-1L95.2,32.4z"/>
+		<path id="p-path1893" inkscape:connector-curvature="0" class="pst11" d="M110.9,28.7l-3.2,0.5l3.1,18.5c0.3,0,0.7-0.2,1-0.2
+			c0.7,0,1.4-0.2,2.1-0.3l-3.1-18.6l0,0L110.9,28.7z"/>
+		<path id="p-path1895" inkscape:connector-curvature="0" class="pst11" d="M141.6,29l-3.4,18.6c0.8,0,1.5,0.2,2.3,0.3
+			c0.3,0,0.6,0,0.9,0.2l3.4-18.6l-3.2-0.6l0,0V29z"/>
+		<path id="p-path1897" inkscape:connector-curvature="0" class="pst11" d="M158.9,33.6l-6.8,17.9c1,0.3,2,0.7,3,1.1l6.8-17.9
+			L158.9,33.6z"/>
+		<path id="p-path1899" inkscape:connector-curvature="0" class="pst11" d="M179.1,35.1l-13.8,22.6c0.9,0.5,1.8,1.1,2.7,1.7l13.8-22.6
+			C181.8,36.8,179.1,35.1,179.1,35.1z"/>
+		<circle id="p-circle1957" class="pst12" cx="125" cy="123.9" r="109.5"/>
+		
+			<path id="p-path1920" inkscape:flatsided="true" inkscape:randomized="0" inkscape:rounded="2.42861e-017" inkscape:transform-center-x="-1.5265411e-006" inkscape:transform-center-y="1.9434793" sodipodi:arg1="1.5707963" sodipodi:arg2="2.6179939" sodipodi:cx="151.51556" sodipodi:cy="-40.754833" sodipodi:r1="14.082661" sodipodi:r2="7.0413308" sodipodi:sides="3" sodipodi:type="star" class="pst11" d="
+			M126.3,48.5l-8.2-33.1h16.3L126.3,48.5L126.3,48.5L126.3,48.5z"/>
+		<path id="p-path1881" inkscape:connector-curvature="0" class="pst11" d="M202.4,127.6h27.1v-3.2h-26.9
+			C202.6,125.5,202.6,126.5,202.4,127.6L202.4,127.6L202.4,127.6z"/>
+		<path id="p-path1883" inkscape:connector-curvature="0" class="pst11" d="M47.4,124.4H20.2v3.2h27.3
+			C47.5,126.5,47.5,125.5,47.4,124.4L47.4,124.4L47.4,124.4z"/>
+	</g>
+	<g id="p-device">
+		<path id="p-path1263" inkscape:connector-curvature="0" class="pst13" d="M122.1,127.7v17.9h-2.3v12.9h-7.7l-16.3,23.2H32.2
+			c0.3,0.5,0.5,0.9,0.8,1.4c2,3.1,4.1,6,6.4,8.9c2.3,2.9,4.7,5.6,7.2,8.2c2.5,2.6,5.2,5.1,8,7.5s5.7,4.6,8.7,6.6
+			c3,2.1,6.1,4,9.3,5.7s6.5,3.3,9.9,4.8c3.4,1.4,6.8,2.7,10.3,3.8s7,2,10.6,2.7s7.2,1.3,10.8,1.6c3.6,0.4,7.3,0.5,10.9,0.5
+			s5.2,0,7.7-0.3c3.6-0.3,7.3-0.7,10.9-1.3c3.6-0.6,7.2-1.4,10.7-2.4s7-2.1,10.4-3.5c3.4-1.3,6.7-2.8,10-4.5s6.4-3.5,9.5-5.4
+			c3.1-2,6-4.1,8.9-6.4c2.9-2.3,5.6-4.7,8.2-7.2c2.6-2.5,5.1-5.2,7.5-8s4.6-5.7,6.6-8.7c0.9-1.3,1.7-2.7,2.5-4.1h-63.5l-16.1-23.2
+			h-7.8v-12.9h-2.5v-17.9L122.1,127.7L122.1,127.7z"/>
+		<path id="p-rect2052" inkscape:connector-curvature="0" class="pst14" d="M69.7,190c-5.1,0.4-9.3,5.6-8.5,10.7
+			c0.6,5.6,5.2,10.3,10.6,11.6c2,0.4,4,0.4,6,0.7c17.1,1.9,34.2,3.8,51.4,3.4c14.1-0.3,28.1-1.8,42-3.4c2.7-0.4,5.5-0.6,8.1-1.2
+			c5.1-1.8,9.1-6.9,9-12.5c0-3.9-2.9-7.4-6.5-8.6c-2.3-0.9-4.9-0.5-7.2-0.2c-14.7,2.1-29.5,4.5-44.4,5c-8.7,0.4-17.5,0-26.2-1
+			c-9.5-1-19-2.6-28.5-3.9c-1.8-0.2-3.7-0.5-5.5-0.6H69.7L69.7,190z"/>
+		<path id="p-path1227" inkscape:connector-curvature="0" sodipodi:nodetypes="cccccccccccc" class="pst15" d="M73.6,198.8L73,211.1
+			c8.3,10.5,29.8,16.1,30.9,16.1s4,0,5.5-2.9c2.5-5.3,14.5-8.9,18-9.8c3.5,0.9,15.6,4.5,18,9.8c1.5,2.9,4.2,2.9,5.5,2.9
+			s19.7-5.6,28-16.1l2.3-12.3H73.6L73.6,198.8L73.6,198.8z"/>
+		
+			<linearGradient id="p-rect1229_00000088101380703678378090000010681904841001683881_" gradientUnits="userSpaceOnUse" x1="-69.4062" y1="564.9" x2="-69.4062" y2="554.1" gradientTransform="matrix(1.6 0 0 -1.6 238.3 1072.4)">
+			<stop  offset="0" style="stop-color:#4D4D4D"/>
+			<stop  offset="0.2" style="stop-color:#B3B3B3"/>
+			<stop  offset="0.6" style="stop-color:#808080"/>
+			<stop  offset="0.9" style="stop-color:#CCCCCC"/>
+			<stop  offset="1" style="stop-color:#666666"/>
+		</linearGradient>
+		
+			<path id="p-rect1229" inkscape:connector-curvature="0" sodipodi:nodetypes="ccccc" style="fill-rule:evenodd;clip-rule:evenodd;fill:url(#p-rect1229_00000088101380703678378090000010681904841001683881_);stroke:#000000;stroke-width:0.2;stroke-miterlimit:11.3;" d="
+			M96.2,194.9c10.9,3.8,53.5,2,62,0l0.6,17.7c-16.1,1.8-51,1.9-63.1,0C95.7,212.6,96.2,194.9,96.2,194.9z"/>
+		<circle id="p-circle1811" class="pst17" cx="125" cy="126.5" r="4.7"/>
+		<path id="p-path1275" inkscape:connector-curvature="0" class="pst7" d="M75.1,122.6c-1.6,0-2.8,1.2-2.8,2.7s1.3,2.7,2.8,2.7h27.1
+			c1.4,11.3,11,20.1,22.7,20.1s21.4-8.8,22.7-20.1h27.7c1.6,0,2.9-1.2,2.9-2.7s-1.3-2.7-2.9-2.7h-29.8c-1.6,0-2.9,1.2-2.9,2.7
+			s0,0.2,0,0.3v1.4c0,0.6-0.1,1.2-0.3,1.8c-0.1,0.6-0.3,1.2-0.4,1.7c-0.2,0.6-0.4,1.1-0.6,1.7c-0.2,0.5-0.5,1.1-0.8,1.6
+			s-0.6,1-0.9,1.5c-0.3,0.5-0.7,1-1.1,1.4c-0.4,0.5-0.8,0.9-1.2,1.3c-0.4,0.4-0.9,0.8-1.3,1.2c-0.5,0.4-0.9,0.7-1.4,1
+			s-1,0.6-1.5,0.9c-0.5,0.3-1.1,0.5-1.6,0.7c-0.6,0.2-1.1,0.4-1.7,0.6c-0.6,0.2-1.2,0.3-1.7,0.4c-0.6,0.1-1.2,0.2-1.8,0.2h-3.1
+			c-0.6,0-1.2-0.1-1.8-0.3c-0.6-0.1-1.2-0.3-1.7-0.4c-0.6-0.2-1.1-0.4-1.7-0.6c-0.5-0.2-1.1-0.5-1.6-0.8s-1-0.6-1.5-0.9
+			c-0.5-0.3-1-0.7-1.4-1.1c-0.5-0.4-0.9-0.8-1.3-1.2s-0.8-0.9-1.2-1.3c-0.4-0.5-0.7-0.9-1-1.4s-0.6-1-0.9-1.5s-0.5-1.1-0.7-1.6
+			c-0.2-0.6-0.4-1.1-0.6-1.7c-0.2-0.6-0.3-1.2-0.4-1.7c0-0.6-0.2-1.2-0.2-1.8v-1.2c0-1.5-1.2-2.7-2.7-2.7H75.3
+			C75.3,122.8,75.1,122.6,75.1,122.6z"/>
+		<path id="p-path1313" inkscape:connector-curvature="0" class="pst18" d="M108.4,131.9l-4.8,1.5c3.3,8.7,11.6,14.9,21.4,14.9
+			s18.1-6.2,21.4-14.9l-4.8-1.5c0,0.2-0.1,0.3-0.2,0.5c-0.2,0.5-0.5,1.1-0.8,1.6s-0.6,1-0.9,1.5c-0.3,0.5-0.7,1-1.1,1.4
+			c-0.4,0.5-0.8,0.9-1.2,1.3c-0.4,0.4-0.9,0.8-1.3,1.2c-0.5,0.4-0.9,0.7-1.4,1s-1,0.6-1.5,0.9c-0.5,0.3-1.1,0.5-1.6,0.7
+			c-0.6,0.2-1.1,0.4-1.7,0.6c-0.6,0.2-1.2,0.3-1.7,0.4c-0.6,0.1-1.2,0.2-1.8,0.2h-3.1c-0.6,0-1.2-0.1-1.8-0.3
+			c-0.6-0.1-1.2-0.3-1.7-0.4c-0.6-0.2-1.1-0.4-1.7-0.6c-0.5-0.2-1.1-0.5-1.6-0.8s-1-0.6-1.5-0.9c-0.5-0.3-1-0.7-1.4-1.1
+			c-0.5-0.4-0.9-0.8-1.3-1.2s-0.8-0.9-1.2-1.3c-0.4-0.5-0.7-0.9-1-1.4s-0.6-1-0.9-1.5s-0.5-1-0.7-1.6l0,0L108.4,131.9L108.4,131.9z"
+			/>
+		<path id="p-path1255" inkscape:connector-curvature="0" class="pst19" d="M120.8,197.2V214"/>
+		<path id="p-path1257" inkscape:connector-curvature="0" class="pst19" d="M135.9,196.9v17"/>
+		
+			<radialGradient id="p-path1259_00000147215891391162253350000002772521551234803130_" cx="19.3419" cy="396.9719" r="2.4" gradientTransform="matrix(2.5699 2.2261 1.8987 -2.192 -684.9672 1036.4722)" gradientUnits="userSpaceOnUse">
+			<stop  offset="0" style="stop-color:#333333"/>
+			<stop  offset="0.3" style="stop-color:#1A1A1A"/>
+			<stop  offset="0.5" style="stop-color:#000000"/>
+			<stop  offset="0.7" style="stop-color:#000000"/>
+			<stop  offset="1" style="stop-color:#000000"/>
+		</radialGradient>
+		
+			<ellipse id="p-path1259" style="fill:url(#p-path1259_00000147215891391162253350000002772521551234803130_);" cx="128.6" cy="205.5" rx="6.7" ry="6.9"/>
+	</g>
+	<g id="p-g1778">
+		<circle id="p-circle1774" class="pst21" cx="29.6" cy="222" r="8.9"/>
+		<path id="p-path1776" inkscape:connector-curvature="0" class="pst22" d="M25.4,217.9c-0.2,0.1-0.3,0.5,0,0.7l1.3,2.1
+			c0,0.2-0.1,0.5-0.2,0.7l-2.1,1.3c-0.3,0.2-0.4,0.5-0.3,0.7l1.5,2.5c0.1,0.2,0.5,0.3,0.7,0l1.9-1.2c0.3,0.2,0.7,0.3,1.1,0.3
+			l1.1,1.9c0.2,0.3,0.5,0.4,0.7,0.3l2.5-1.5c0.2-0.1,0.3-0.5,0-0.7l-1-1.7c0.2-0.4,0.3-0.9,0.3-1.4l1.7-1c0.3-0.2,0.4-0.5,0.3-0.7
+			l-1.5-2.5c0-0.2-0.5-0.3-0.7,0l-1.9,1.2c-0.3-0.1-0.6-0.2-1-0.2l-1.2-2c-0.2-0.3-0.5-0.4-0.7-0.3L25.4,217.9L25.4,217.9
+			L25.4,217.9z"/>
+	</g>
+	<g id="p-g1784">
+		<circle id="p-circle1780" class="pst21" cx="220" cy="222" r="8.9"/>
+		<path id="p-path1782" inkscape:connector-curvature="0" class="pst22" d="M215.8,217.9c-0.2,0.1-0.3,0.5,0,0.7l1.3,2.1
+			c0,0.2-0.1,0.5-0.2,0.7l-2.1,1.3c-0.3,0.2-0.4,0.5-0.3,0.7l1.5,2.5c0.1,0.2,0.5,0.3,0.7,0l1.9-1.2c0.3,0.2,0.7,0.3,1.1,0.3
+			l1.1,1.9c0.2,0.3,0.5,0.4,0.7,0.3l2.5-1.5c0.2-0.1,0.3-0.5,0-0.7l-1-1.7c0.2-0.4,0.3-0.9,0.3-1.4l1.7-1c0.3-0.2,0.4-0.5,0.3-0.7
+			l-1.5-2.5c-0.1-0.2-0.5-0.3-0.7,0l-1.9,1.2c-0.3-0.1-0.6-0.2-1-0.2l-1.2-2c-0.2-0.3-0.5-0.4-0.7-0.3L215.8,217.9L215.8,217.9
+			L215.8,217.9z"/>
+	</g>
+	<g id="p-g1790">
+		<circle id="p-circle1786" class="pst21" cx="29.6" cy="28" r="8.9"/>
+		<path id="p-path1788" inkscape:connector-curvature="0" class="pst22" d="M25.4,23.9c-0.2,0.1-0.3,0.5,0,0.7l1.3,2.1
+			c0,0.2-0.1,0.5-0.2,0.7l-2.1,1.3c-0.3,0.2-0.4,0.5-0.3,0.7l1.5,2.5c0.1,0.2,0.5,0.3,0.7,0l1.9-1.2c0.3,0.2,0.7,0.3,1.1,0.3
+			l1.1,1.9c0.2,0.3,0.5,0.4,0.7,0.3l2.5-1.5c0.2-0.1,0.3-0.5,0-0.7l-1-1.7c0.2-0.4,0.3-0.9,0.3-1.4l1.7-1c0.3-0.2,0.4-0.5,0.3-0.7
+			l-1.5-2.5c0-0.2-0.5-0.3-0.7,0l-1.9,1.2c-0.3-0.1-0.6-0.2-1-0.2l-1.2-2c-0.2-0.3-0.5-0.4-0.7-0.3C27.9,22.4,25.4,23.9,25.4,23.9z"
+			/>
+	</g>
+	<g id="p-g1796">
+		<circle id="p-circle1792" class="pst21" cx="220" cy="28" r="8.9"/>
+		<path id="p-path1794" inkscape:connector-curvature="0" class="pst22" d="M215.8,23.9c-0.2,0.1-0.3,0.5,0,0.7l1.3,2.1
+			c0,0.2-0.1,0.5-0.2,0.7l-2.1,1.3c-0.3,0.2-0.4,0.5-0.3,0.7l1.5,2.5c0.1,0.2,0.5,0.3,0.7,0l1.9-1.2c0.3,0.2,0.7,0.3,1.1,0.3
+			l1.1,1.9c0.2,0.3,0.5,0.4,0.7,0.3l2.5-1.5c0.2-0.1,0.3-0.5,0-0.7l-1-1.7c0.2-0.4,0.3-0.9,0.3-1.4l1.7-1c0.3-0.2,0.4-0.5,0.3-0.7
+			l-1.5-2.5c-0.1-0.2-0.5-0.3-0.7,0l-1.9,1.2c-0.3-0.1-0.6-0.2-1-0.2l-1.2-2c-0.2-0.3-0.5-0.4-0.7-0.3L215.8,23.9L215.8,23.9
+			L215.8,23.9z"/>
+	</g>
+	<g id="p-g1903" class="pst23">
+		
+			<radialGradient id="p-circle2789_00000127757903352015574690000018025799558051977905_" cx="-366.1857" cy="473.6718" r="71.3" gradientTransform="matrix(1.9322 1.7397 1.8736 -2.0808 -77.7399 1704.412)" gradientUnits="userSpaceOnUse">
+			<stop  offset="0" style="stop-color:#F9F9F9;stop-opacity:0.5"/>
+			<stop  offset="0.5" style="stop-color:#E6E6E6;stop-opacity:0.3"/>
+			<stop  offset="1" style="stop-color:#000000;stop-opacity:0"/>
+		</radialGradient>
+		
+			<circle id="p-circle2789" style="display:inline;fill:url(#p-circle2789_00000127757903352015574690000018025799558051977905_);" cx="125.4" cy="124.4" r="109.4"/>
+		
+			<g id="p-path2659" inkscape:flatsided="false" inkscape:randomized="0" inkscape:rounded="0.22" inkscape:transform-center-x="0.0023137643" inkscape:transform-center-y="0.021133168" sodipodi:arg1="0.68067841" sodipodi:arg2="0.91598174" sodipodi:cx="480.9801" sodipodi:cy="339.96359" sodipodi:r1="7.1255984" sodipodi:r2="13.971762" sodipodi:sides="21" sodipodi:type="star" class="pst25">
+			<path class="pst26" d="M97.2,74.9c-0.9,1,3.4,4.6,2.5,5.5s-2.7-4.9-3.8-4.3c-1.2,0.6,1.9,5.4,0.7,6c-1.1,0.5-1.1-5.5-2.3-5.3
+				c-1.3,0.3,0.3,5.8-1,6c-1.2,0.2,0.5-5.6-0.7-5.7c-1.3,0-1.4,5.6-2.7,5.4c-1.2-0.2,2.2-5.2,1-5.7s-3,4.9-4.2,4.3
+				c-1.1-0.6,3.6-4.3,2.6-5.1c-1-0.9-4.3,3.8-5.3,2.9c-0.9-0.9,4.7-3.1,4-4.1c-0.7-1.1-5.2,2.4-5.9,1.2c-0.6-1.1,5.3-1.5,5-2.7
+				c-0.4-1.3-5.7,0.7-5.9-0.6c-0.3-1.2,5.5,0,5.6-1.1c0-1.3-5.6-1-5.5-2.4c0-1.3,5.3,1.8,5.7,0.6c0.4-1.3-5.1-2.7-4.6-3.9
+				c0.5-1.2,4.5,3.3,5.2,2.2c0.8-1.1-4.1-4.1-3.2-5.1c0.8-1,3.4,4.5,4.3,3.7c1-0.8-2.7-5.1-1.6-5.8c1-0.7,1.9,5.3,3.1,4.8
+				s-1.1-5.7,0.2-6.1c1.2-0.4,0.3,5.6,1.5,5.5c1.3,0,0.6-5.8,1.9-5.7c1.2,0-1.4,5.5-0.2,5.8c1.3,0.3,2.2-5.3,3.5-4.9
+				c1.2,0.4-2.9,4.8-1.8,5.5s3.7-4.4,4.8-3.7c1,0.7-4.2,3.7-3.3,4.7c0.9,1,4.8-3.1,5.6-2.1c0.8,1-5.1,2.3-4.5,3.5
+				c0.5,1.2,5.5-1.5,6-0.3c0.4,1.2-5.5,0.7-5.3,2s5.7,0.2,5.8,1.5c0,1.3-5.5-1-5.7,0.3s5.4,1.9,5.1,3.2c-0.3,1.2-4.9-2.6-5.5-1.4
+				s4.6,3.4,4,4.5s-4-3.9-4.8-3L97.2,74.9L97.2,74.9z"/>
+		</g>
+	</g>
+</g>
+
+</svg>
+      <div class="roll-ovl">
+        <svg viewBox="0 0 248.4 247" xmlns="http://www.w3.org/2000/svg">
+          <g opacity="0.8">
+            <line x1="125" y1="15" x2="125" y2="27" stroke="white" stroke-width="2" transform="rotate(0,125,123.9)"/>
+            <line x1="125" y1="19" x2="125" y2="26" stroke="white" stroke-width="1.2" transform="rotate(10,125,123.9)"/>
+            <line x1="125" y1="19" x2="125" y2="26" stroke="white" stroke-width="1.2" transform="rotate(-10,125,123.9)"/>
+            <line x1="125" y1="19" x2="125" y2="26" stroke="white" stroke-width="1.2" transform="rotate(20,125,123.9)"/>
+            <line x1="125" y1="19" x2="125" y2="26" stroke="white" stroke-width="1.2" transform="rotate(-20,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="white" stroke-width="2" transform="rotate(30,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="white" stroke-width="2" transform="rotate(-30,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="#E84E12" stroke-width="1.8" transform="rotate(45,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="#E84E12" stroke-width="1.8" transform="rotate(-45,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="white" stroke-width="2" transform="rotate(60,125,123.9)"/>
+            <line x1="125" y1="15" x2="125" y2="27" stroke="white" stroke-width="2" transform="rotate(-60,125,123.9)"/>
+          </g>
+          <g id="roll-pointer">
+            <polygon points="125,30 119,42 131,42" fill="#E84E12" opacity="0.95"/>
+          </g>
+          <g>
+            <line x1="80" y1="127" x2="110" y2="127" stroke="#E84E12" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="140" y1="127" x2="170" y2="127" stroke="#E84E12" stroke-width="2.5" stroke-linecap="round"/>
+            <circle cx="125" cy="127" r="4" fill="#E84E12"/>
+            <line x1="118" y1="134" x2="132" y2="134" stroke="#E84E12" stroke-width="2" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+    </div>
+    <div class="dc-strip">
+      <div class="dc p"><div class="dclabel">Pitch</div><div class="dcval" id="v-pitch">+0°</div></div>
+      <div class="dc b"><div class="dclabel">Bank</div><div class="dcval" id="v-roll">0°</div></div>
+    </div>
+  </div>
+
+  <!-- Directional Gyro -->
+  <div class="inst-wrap">
+    <div class="inst-label">Dir. Gyro</div>
+    <div class="inst-gauge" style="width:140px;height:140px;"><svg width="140" height="140" version="1.1" id="y-root" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 248.4 247">
+<defs>
+  <linearGradient id="y-bgrad" x1="18.4" y1="231.4" x2="230.7" y2="19" gradientTransform="translate(0 248) scale(1 -1)" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#686868"/><stop offset="1" stop-color="#000"/>
+  </linearGradient>
+  <clipPath id="y-clip"><circle cx="125" cy="123.9" r="107"/></clipPath>
+  <radialGradient id="y-glass" cx="90" cy="70" r="130" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#fff" stop-opacity="0.06"/>
+    <stop offset="1" stop-color="#000" stop-opacity="0.1"/>
+  </radialGradient>
+</defs>
+<path fill="none" fill-rule="evenodd" stroke="url(#y-bgrad)" stroke-miterlimit="6.2" stroke-width="2"
+  d="M16,21.3c.9-2.1,3.8-4.9,6.6-5.9L62.3,0h122.8l42.7,15.2c2.6,1.1,4.4,3.6,5.4,6.3l13.5,40v122.6l-14.3,40.7c-2,3.5-3,4.3-6.8,6.3,0,0-21.8,11.5-40.5,14.3H62.4c-12.9.3-39.9-13.8-39.9-13.8-2.6-1.3-5.5-4.9-6.4-7.6,0,0-15.1-31.1-15.1-39.9V61.6l15.1-40.3Z"/>
+<circle cx="125" cy="123.9" r="109.5" fill="#0d1117"/>
+<g clip-path="url(#y-clip)">
+  <g id="y-compass">
+    <circle cx="125" cy="123.9" r="120" fill="#0d1117"/>
+    <g stroke="#fff" stroke-width="1.5" opacity="0.7">
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(0,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(30,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(60,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(90,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(120,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(150,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(180,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(210,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(240,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(270,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(300,125,123.9)"/>
+      <line x1="125" y1="18" x2="125" y2="30" transform="rotate(330,125,123.9)"/>
+    </g>
+    <g stroke="#fff" stroke-width="0.8" opacity="0.35">
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(10,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(20,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(40,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(50,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(70,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(80,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(100,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(110,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(130,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(140,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(160,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(170,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(190,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(200,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(220,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(230,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(250,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(260,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(280,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(290,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(310,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(320,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(340,125,123.9)"/>
+      <line x1="125" y1="20" x2="125" y2="26" transform="rotate(350,125,123.9)"/>
+    </g>
+    <text x="125" y="50" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="16" font-weight="bold" fill="#E84E12">N</text>
+    <text x="125" y="210" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="14" fill="white">S</text>
+    <text x="218" y="129" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="14" fill="white">E</text>
+    <text x="32" y="129" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="14" fill="white">W</text>
+    <text x="184" y="72" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="10" fill="#aaa">NE</text>
+    <text x="66" y="72" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="10" fill="#aaa">NW</text>
+    <text x="184" y="185" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="10" fill="#aaa">SE</text>
+    <text x="66" y="185" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="10" fill="#aaa">SW</text>
+    <circle cx="125" cy="123.9" r="88" fill="none" stroke="#1a2535" stroke-width="22"/>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(30,125,123.9)">030</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(60,125,123.9)">060</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(90,125,123.9)">090</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(120,125,123.9)">120</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(150,125,123.9)">150</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(180,125,123.9)">180</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(210,125,123.9)">210</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(240,125,123.9)">240</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(270,125,123.9)">270</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(300,125,123.9)">300</text>
+    <text x="125" y="70" text-anchor="middle" font-family="Share Tech Mono,monospace" font-size="9" fill="#888" transform="rotate(330,125,123.9)">330</text>
+  </g>
+</g>
+<rect x="121" y="14" width="8" height="16" rx="1" fill="#E84E12"/>
+<g opacity="0.9">
+  <line x1="90" y1="123.9" x2="155" y2="123.9" stroke="#E84E12" stroke-width="2.5"/>
+  <circle cx="125" cy="123.9" r="5" fill="#E84E12"/>
+  <line x1="113" y1="130" x2="137" y2="130" stroke="#E84E12" stroke-width="1.5"/>
+</g>
+<circle cx="125" cy="123.9" r="109.5" fill="none" stroke="#231F20" stroke-width="10"/>
+<circle cx="29.6" cy="222" r="8.9" fill="#1A1A1A" stroke="#666" stroke-width="0.2"/>
+<circle cx="220" cy="222" r="8.9" fill="#1A1A1A" stroke="#666" stroke-width="0.2"/>
+<circle cx="29.6" cy="28" r="8.9" fill="#1A1A1A" stroke="#666" stroke-width="0.2"/>
+<circle cx="220" cy="28" r="8.9" fill="#1A1A1A" stroke="#666" stroke-width="0.2"/>
+<circle cx="125" cy="123.9" r="109.5" fill="url(#y-glass)" opacity="0.4"/>
+</svg></div>
+    <div class="dc-strip">
+      <div class="dc g"><div class="dclabel">HDG</div><div class="dcval" id="v-hdg">000°</div></div>
+      <div class="dc g"><div class="dclabel">Dir</div><div class="dcval" id="v-card" style="font-size:10px">N</div></div>
+    </div>
+  </div>
+
+  <!-- Elevator -->
+  <div class="inst-wrap">
+    <div class="inst-label">Elevator</div>
+    <div class="inst-gauge" style="width:110px;height:110px;"><svg width="110" height="110" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" id="el-elevator" version="1.1" viewBox="0 0 512 512">
+  
+  <defs>
+    <style type="text/css">
+      .elst0, .elst1, .elst2, .elst3, .elst4 {
+        fill: #1a1a1a;
+      }
+
+      .elst0, .elst5, .elst6, .elst7 {
+        stroke-width: .1px;
+      }
+
+      .elst0, .elst8, .elst4 {
+        stroke: #000;
+        stroke-miterlimit: 11.3;
+      }
+
+      .elst1, .elst2, .elst3, .elst5 {
+        stroke: #666;
+      }
+
+      .elst1, .elst9 {
+        stroke-miterlimit: 6.2;
+        stroke-width: .2px;
+      }
+
+      .elst2, .elst5, .elst10, .elst11, .elst6, .elst7 {
+        stroke-miterlimit: 6.2;
+      }
+
+      .elst2, .elst8, .elst10, .elst4 {
+        stroke-width: .2px;
+      }
+
+      .elst3, .elst12 {
+        stroke-miterlimit: 6.2;
+        stroke-width: .2px;
+      }
+
+      .elst13 {
+        stroke: url(#el-linear-gradient2);
+      }
+
+      .elst13, .elst14, .elst15, .elst16, .elst17 {
+        stroke-miterlimit: 10;
+      }
+
+      .elst13, .elst14, .elst15, .elst17 {
+        fill: none;
+      }
+
+      .elst13, .elst14, .elst15, .elst11 {
+        stroke-width: 2px;
+      }
+
+      .elst14 {
+        stroke: url(#el-linear-gradient1);
+      }
+
+      .elst15 {
+        stroke: url(#el-linear-gradient3);
+      }
+
+      .elst18, .elst19, .elst17 {
+        isolation: isolate;
+      }
+
+      .elst5, .elst11, .elst6, .elst7 {
+        fill-rule: evenodd;
+      }
+
+      .elst8 {
+        fill: #333;
+      }
+
+      .elst16 {
+        fill: #16ec00;
+        stroke: #231f20;
+      }
+
+      .elst12, .elst9, .elst10, .elst7 {
+        stroke: gray;
+      }
+
+      .elst19 {
+        fill: #fff;
+      }
+
+      .elst19, .elst17 {
+        font-family: HelveticaNeue-Medium, 'Helvetica Neue';
+        font-size: 100px;
+        font-weight: 500;
+      }
+
+      .elst17 {
+        stroke: #231f00;
+      }
+
+      .elst11 {
+        stroke: url(#el-linear-gradient);
+      }
+
+      .elst6 {
+        stroke: #999;
+      }
+
+      .elst20 {
+        fill: url(#el-radial-gradient);
+      }
+    </style>
+    <linearGradient id="el-linear-gradient" x1="38.8" y1="-241.2" x2="477" y2="-679.6" gradientTransform="translate(0 -204) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#686868"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="el-linear-gradient1" x1="229.1" y1="1182.1" x2="381.5" y2="1182.1" gradientTransform="translate(0 -926)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="1" stop-color="#646464"/>
+    </linearGradient>
+    <linearGradient id="el-linear-gradient2" x1="207.6" y1="1182.1" x2="207.6" y2="1182.1" gradientTransform="translate(0 -926)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="1" stop-color="#646464"/>
+    </linearGradient>
+    <linearGradient id="el-linear-gradient3" x1="140.6" y1="1182.2" x2="380.8" y2="1182.2" gradientTransform="translate(0 -926)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="1" stop-color="#646464"/>
+    </linearGradient>
+    <radialGradient id="el-radial-gradient" cx="-2942.4" cy="1630.8" fx="-2942.4" fy="1630.8" r="146" gradientTransform="translate(2869.3 8610.6) rotate(42) scale(2.6 -2.7)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f9f9f9" stop-opacity=".5"/>
+      <stop offset=".5" stop-color="#e6e6e6" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g id="el-frame">
+    <path id="el-bezel" class="elst11" d="M33.1,45.9c1.9-4.3,7.9-10.1,13.7-12.3L129,1.9h254.2l88.4,31.6c5.3,2.2,9.2,7.5,11.3,13l28,83v253.9l-29.5,84.3c-4.1,7.3-6.1,8.9-14.2,13,0,0-45.2,23.9-84,29.7h-254.1c-26.8.7-82.6-28.5-82.6-28.5-5.3-2.7-11.4-10.1-13.3-15.7,0,0-31.2-64.5-31.2-82.6v-253.9l31.2-83.5h0l-.2-.2h.1Z"/>
+    <g id="el-g16431">
+      <circle id="el-circle16391" class="elst10" cx="63.3" cy="456.3" r="18.3"/>
+      <path id="el-path16411" class="elst7" d="M54.8,447.9c-.3,0-.7,1,0,1.4l2.7,4.3c0,.3,0,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c0,.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3,0,.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c0-.3-1-.7-1.4,0l-3.9,2.4c-.7,0-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+    </g>
+    <g id="el-g16501">
+      <circle id="el-circle16451" class="elst9" cx="453.1" cy="456.3" r="18.3"/>
+      <path id="el-path16481" class="elst7" d="M444.4,447.9c-.3,0-.7,1,0,1.4l2.7,4.3c0,.3-.2,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c.2.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3,0,.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c-.2-.3-1-.7-1.4,0l-3.9,2.4c-.7,0-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+    </g>
+    <g id="el-g16571">
+      <circle id="el-circle16521" class="elst10" cx="63.3" cy="59.1" r="18.3"/>
+      <path id="el-path16551" class="elst6" d="M54.8,50.7c-.3.2-.7,1,0,1.4l2.7,4.3c0,.3,0,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c0,.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3-.2.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c0-.3-1-.7-1.4,0l-3.9,2.4c-.7-.2-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+    </g>
+    <g id="el-g16631">
+      <circle id="el-circle16591" class="elst12" cx="453.3" cy="59.1" r="18.3" transform="translate(291.4 486.6) rotate(-76.7)"/>
+      <path id="el-path16611" class="elst7" d="M444.4,50.7c-.3.2-.7,1,0,1.4l2.7,4.3c0,.3-.2,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c.2.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3-.2.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c-.2-.3-1-.7-1.4,0l-3.9,2.4c-.7-.2-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+    </g>
+    <g id="el-screws">
+      <g id="el-g20091">
+        <circle id="el-circle20051" class="elst2" cx="63.5" cy="456.6" r="18.3" transform="translate(-395 504.9) rotate(-88.1)"/>
+        <path id="el-path20071" class="elst5" d="M54.9,447.9c-.3,0-.7,1,0,1.4l2.7,4.3c0,.3,0,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c0,.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3,0,.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c0-.3-1-.7-1.4,0l-3.9,2.4c-.7,0-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+      </g>
+      <g id="el-g20151">
+        <circle id="el-circle20111" class="elst1" cx="453.3" cy="456.6" r="18.3"/>
+        <path id="el-path20131" class="elst5" d="M444.7,447.9c-.3,0-.7,1,0,1.4l2.7,4.3c0,.3-.2,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c.2.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3,0,.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c-.2-.3-1-.7-1.4,0l-3.9,2.4c-.7,0-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+      </g>
+      <g id="el-g20221">
+        <circle id="el-circle20171" class="elst2" cx="63.5" cy="59.1" r="18.3"/>
+        <path id="el-path20201" class="elst5" d="M54.9,50.7c-.3.2-.7,1,0,1.4l2.7,4.3c0,.3,0,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c0,.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3-.2.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c0-.3-1-.7-1.4,0l-3.9,2.4c-.7-.2-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+      </g>
+      <g id="el-g20301">
+        <circle id="el-circle20241" class="elst3" cx="453.4" cy="59.2" r="18.3" transform="translate(291.5 486.8) rotate(-76.7)"/>
+        <path id="el-path20281" class="elst5" d="M444.7,50.7c-.3.2-.7,1,0,1.4l2.7,4.3c0,.3-.2,1-.3,1.4l-4.3,2.7c-.7.3-.9,1-.7,1.4l3.1,5.1c.2.3,1,.7,1.4,0l3.9-2.4c.7.3,1.4.7,2.2.7l2.2,3.9c.3.7,1,.9,1.4.7l5.1-3.1c.3-.2.7-1,0-1.4l-2-3.4c.3-.9.7-1.9.7-2.9l3.4-2c.7-.3.9-1,.7-1.4l-3.1-5.1c-.2-.3-1-.7-1.4,0l-3.9,2.4c-.7-.2-1.2-.3-2-.3l-2.4-4.1c-.3-.7-1-.9-1.4-.7l-5.1,3.1h0l-.2-.2h0Z"/>
+      </g>
+    </g>
+    <circle id="el-circle16671" class="elst4" cx="257.1" cy="256.1" r="239.4"/>
+    <circle id="el-circle16691" class="elst8" cx="253.7" cy="256.1" r="220.4"/>
+    <circle id="el-circle16711" class="elst0" cx="253.7" cy="256.1" r="165.8"/>
+  </g>
+  <path id="el-rudder" class="elst14" d="M230,162.1c15.8-28.3,38.7-46.1,64.1-46.1,47.7,0,86.4,62.7,86.4,140.1s-38.7,140.1-86.4,140.1-47.8-17.4-63.6-45.3"/>
+  <path id="el-rudder1" class="elst13" d="M207.6,256.1"/>
+  <path id="el-sub" class="elst15" d="M140.8,139.5s239,52.2,239,116.7-239,116.7-239,116.7"/>
+  <g id="el-Scale" class="elst18">
+    <g class="elst18">
+      <text class="elst19" transform="translate(126.4 360.5)"><tspan x="0" y="0">100%</tspan></text>
+      <text class="elst17" transform="translate(126.4 360.5)"><tspan x="0" y="0">100%</tspan></text>
+    </g>
+  </g>
+  <path id="el-elevator-shape" class="elst16" d="M360.3,260c0,9.6-65.4,17.4-146.1,17.4s-80.7-34.6,0-34.6,146.1,7.7,146.1,17.3h0Z"/>
+  <g>
+    <path d="M117,98.3l20.2-16.4,2.8,3.4-16.5,13.4,6.9,8.5,15.3-12.4,2.6,3.2-15.3,12.4,7.7,9.4,16.8-13.7,2.7,3.3-20.5,16.6-22.6-27.8Z"/>
+    <path d="M147,75.6l4.2-2.4,15.3,27.6,15.7-8.7,2.1,3.7-20,11.1-17.4-31.3Z"/>
+    <path d="M176.4,60.4l24.6-8.5,1.4,4.2-20.1,6.9,3.5,10.3,18.6-6.4,1.3,3.9-18.6,6.4,4,11.5,20.5-7,1.4,4-25,8.6-11.7-33.9Z"/>
+    <path d="M215.7,48.8l14.4,28.8,5.9-31.7,5.4-.8-8,37.3-5.1.7-17.9-33.7,5.3-.7Z"/>
+    <path d="M257.3,45.5l5.5.2,11.9,36.2-5.3-.2-3.3-10.8-14.2-.4-4.2,10.6h-5c0-.1,14.6-35.6,14.6-35.6ZM264.7,66.8l-5-16-6.3,15.7,11.2.3Z"/>
+    <path d="M306.5,51.9l-.8,4.2-11.9-2.3-6,31-4.8-.9,6-31-11.9-2.3.8-4.2,28.5,5.5Z"/>
+    <path d="M340.6,70.2c1,3.8.6,8-1.3,12.6-2,5-5,8.6-8.8,10.8-4.5,2.7-9.5,2.9-15,.6-5.1-2.1-8.4-5.4-10-10-1.3-4.3-.9-9,1.1-13.9,1.8-4.5,4.5-7.9,8-10.2,4.5-2.9,9.6-3.3,15.2-1,5.9,2.4,9.4,6,10.7,11ZM328,89.8c2.9-2.1,5.1-5,6.7-8.7,1.6-3.9,1.8-7.5.8-10.7s-3.4-5.5-6.9-7c-3.4-1.4-6.7-1.4-9.9.1-3.1,1.5-5.6,4.5-7.5,9.1-1.5,3.7-1.8,7.2-1,10.4s3.3,5.8,7.5,7.5c4,1.6,7.4,1.4,10.3-.8Z"/>
+    <path d="M356.5,73.1l13.4,9.2c2.2,1.5,3.8,3.1,4.8,4.7,1.9,3.1,1.6,6.4-.7,9.8-1.2,1.8-2.6,3-4.1,3.6-1.5.6-3.2.8-4.9.6.8,1.3,1.3,2.5,1.3,3.6,0,1.2-.5,2.6-1.6,4.4l-2.6,4.1c-.7,1.2-1.2,2.1-1.4,2.7-.4,1.1-.4,2,0,2.7l-.5.7-4.9-3.4c0-.3.2-.7.4-1.2.2-.5.7-1.3,1.4-2.5l3.1-5.1c1.2-2,1.4-3.8.6-5.3-.5-.9-1.5-1.9-3.1-2.9l-8.9-6.1-8.7,12.7-4-2.8,20.3-29.6ZM360.2,95.5c1.8,1.3,3.5,1.9,5.1,1.9s3-1,4.4-3c1.4-2.1,1.7-4.1.7-5.8-.5-.9-1.4-1.9-2.8-2.8l-9.5-6.5-6.9,10.1,9,6.2Z"/>
+  </g>
+<circle id="el-reflection" class="elst20" cx="253.7" cy="256.3" r="219.9"/>
+  
+
+</svg></div>
+    <div class="dc-strip">
+      <div class="dc p"><div class="dclabel">Elev</div><div class="dcval" id="v-elev">0%</div></div>
+    </div>
+  </div>
+
+  <!-- Rudder -->
+  <div class="inst-wrap">
+    <div class="inst-label">Rudder</div>
+    <div class="inst-gauge" style="width:110px;height:110px;"><svg width="110" height="110" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="http://www.w3.org/2000/svg" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:cc="http://creativecommons.org/ns#" id="ru-rudder" version="1.1" viewBox="0 0 300 300">
+  
+  <defs>
+    <style type="text/css">
+      .rust0, .rust1, .rust2, .rust3 {
+        fill: #1a1a1a;
+      }
+
+      .rust0, .rust4, .rust5, .rust6 {
+        stroke-width: .1px;
+      }
+
+      .rust0, .rust7, .rust3 {
+        stroke: #000;
+        stroke-miterlimit: 11.3;
+      }
+
+      .rust1, .rust2, .rust4 {
+        stroke: #666;
+      }
+
+      .rust1, .rust4, .rust8, .rust9, .rust5, .rust6 {
+        stroke-miterlimit: 6.2;
+      }
+
+      .rust1, .rust7, .rust8, .rust3 {
+        stroke-width: .2px;
+      }
+
+      .rust2, .rust10 {
+        stroke-miterlimit: 6.2;
+        stroke-width: .2px;
+      }
+
+      .rust11 {
+        stroke: url(#ru-linear-gradient2);
+      }
+
+      .rust11, .rust12 {
+        fill: none;
+      }
+
+      .rust11, .rust12, .rust13 {
+        stroke-miterlimit: 10;
+      }
+
+      .rust11, .rust12, .rust9 {
+        stroke-width: 2px;
+      }
+
+      .rust12 {
+        stroke: url(#ru-linear-gradient1);
+      }
+
+      .rust14 {
+        fill: url(#ru-radial-gradient);
+      }
+
+      .rust15, .rust16 {
+        isolation: isolate;
+      }
+
+      .rust4, .rust9, .rust5, .rust6 {
+        fill-rule: evenodd;
+      }
+
+      .rust7 {
+        fill: #333;
+      }
+
+      .rust13 {
+        fill: #16ec00;
+        stroke: #231f20;
+      }
+
+      .rust16 {
+        fill: #fff;
+        font-family: Helvetica, Helvetica;
+        font-size: 70px;
+      }
+
+      .rust10, .rust8, .rust6 {
+        stroke: gray;
+      }
+
+      .rust9 {
+        stroke: url(#ru-linear-gradient);
+      }
+
+      .rust5 {
+        stroke: #999;
+      }
+    </style>
+    <linearGradient id="ru-linear-gradient" x1="21.7" y1="-437.3" x2="279" y2="-694.7" gradientTransform="translate(0 -416) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#686868"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="ru-linear-gradient1" x1="-342.2" y1="927.1" x2="-427.9" y2="927.1" gradientTransform="translate(-779 555) rotate(90) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000"/>
+      <stop offset="1" stop-color="#646464"/>
+    </linearGradient>
+    <linearGradient id="ru-linear-gradient2" x1="-342.6" y1="926.9" x2="-476.9" y2="926.9" gradientTransform="translate(-779 555) rotate(90) scale(1 -1)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#000"/>
+      <stop offset="1" stop-color="#646464"/>
+    </linearGradient>
+    <radialGradient id="ru-radial-gradient" cx="-3078.4" cy="1636.5" fx="-3078.4" fy="1636.5" r="85.5" gradientTransform="translate(3066.9 8767.4) rotate(42) scale(2.6 -2.7)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f9f9f9" stop-opacity=".5"/>
+      <stop offset=".5" stop-color="#e6e6e6" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <g id="ru-frame">
+    <path id="ru-bezel" class="rust9" d="M18.6,26.8c1.1-2.5,4.6-5.9,8-7.2L74.8,1h148.9l51.8,18.5c3.1,1.3,5.4,4.4,6.6,7.6l16.4,48.6v148.7l-17.3,49.4c-2.4,4.3-3.6,5.2-8.3,7.6,0,0-26.5,14-49.2,17.4H74.9c-15.7.4-48.4-16.7-48.4-16.7-3.1-1.6-6.7-5.9-7.8-9.2,0,0-18.3-37.8-18.3-48.4V75.8L18.7,26.9h-.1Z" inkscape:connector-curvature="0" sodipodi:nodetypes="ccccccccccccccccc"/>
+    <g id="ru-g16431">
+      <circle id="ru-circle16391" class="rust8" cx="36.3" cy="267.1" r="10.7"/>
+      <path id="ru-path16411" class="rust6" d="M31.3,262.2c-.2,0-.4.6,0,.8l1.6,2.5c0,.2,0,.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c0,.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c0-.2-.6-.4-.8,0l-2.3,1.4c-.4,0-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+    </g>
+    <g id="ru-g16501">
+      <circle id="ru-circle16451" class="rust8" cx="264.6" cy="267.1" r="10.7"/>
+      <path id="ru-path16481" class="rust6" d="M259.5,262.2c-.2,0-.4.6,0,.8l1.6,2.5c0,.2-.1.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c.1.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c-.1-.2-.6-.4-.8,0l-2.3,1.4c-.4,0-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+    </g>
+    <g id="ru-g16571">
+      <circle id="ru-circle16521" class="rust8" cx="36.3" cy="34.5" r="10.7"/>
+      <path id="ru-path16551" class="rust5" d="M31.3,29.6c-.2.1-.4.6,0,.8l1.6,2.5c0,.2,0,.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c0,.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c0-.2-.6-.4-.8,0l-2.3,1.4c-.4-.1-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+    </g>
+    <g id="ru-g16631">
+      <circle id="ru-circle16591" class="rust10" cx="264.6" cy="34.5" r="10.7" transform="translate(115.3 255.8) rotate(-63.4)"/>
+      <path id="ru-path16611" class="rust6" d="M259.5,29.6c-.2.1-.4.6,0,.8l1.6,2.5c0,.2-.1.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c.1.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c-.1-.2-.6-.4-.8,0l-2.3,1.4c-.4-.1-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+    </g>
+    <g id="ru-screws">
+      <g id="ru-g20091">
+        <circle id="ru-circle20051" class="rust1" cx="36.4" cy="267.3" r="10.7"/>
+        <path id="ru-path20071" class="rust4" d="M31.4,262.2c-.2,0-.4.6,0,.8l1.6,2.5c0,.2,0,.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c0,.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c0-.2-.6-.4-.8,0l-2.3,1.4c-.4,0-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h-.1Z" inkscape:connector-curvature="0"/>
+      </g>
+      <g id="ru-g20151">
+        <circle id="ru-circle20111" class="rust1" cx="264.7" cy="267.3" r="10.7"/>
+        <path id="ru-path20131" class="rust4" d="M259.7,262.2c-.2,0-.4.6,0,.8l1.6,2.5c0,.2-.1.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c.1.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c-.1-.2-.6-.4-.8,0l-2.3,1.4c-.4,0-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+      </g>
+      <g id="ru-g20221">
+        <circle id="ru-circle20171" class="rust1" cx="36.4" cy="34.5" r="10.7"/>
+        <path id="ru-path20201" class="rust4" d="M31.4,29.6c-.2.1-.4.6,0,.8l1.6,2.5c0,.2,0,.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c0,.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c0-.2-.6-.4-.8,0l-2.3,1.4c-.4-.1-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h-.1Z" inkscape:connector-curvature="0"/>
+      </g>
+      <g id="ru-g20301">
+        <circle id="ru-circle20241" class="rust2" cx="264.8" cy="34.5" r="10.7" transform="translate(115.4 255.9) rotate(-63.4)"/>
+        <path id="ru-path20281" class="rust4" d="M259.7,29.6c-.2.1-.4.6,0,.8l1.6,2.5c0,.2-.1.6-.2.8l-2.5,1.6c-.4.2-.5.6-.4.8l1.8,3c.1.2.6.4.8,0l2.3-1.4c.4.2.8.4,1.3.4l1.3,2.3c.2.4.6.5.8.4l3-1.8c.2,0,.4-.6,0-.8l-1.2-2c.2-.5.4-1.1.4-1.7l2-1.2c.4-.2.5-.6.4-.8l-1.8-3c-.1-.2-.6-.4-.8,0l-2.3,1.4c-.4-.1-.7-.2-1.2-.2l-1.4-2.4c-.2-.4-.6-.5-.8-.4l-3,1.8h0Z" inkscape:connector-curvature="0"/>
+      </g>
+    </g>
+    <circle id="ru-circle16671" class="rust3" cx="149.8" cy="149.9" r="140.2"/>
+    <circle id="ru-circle16691" class="rust7" cx="147.8" cy="149.9" r="129.1"/>
+    <circle id="ru-circle16711" class="rust0" cx="147.8" cy="149.9" r="97.1"/>
+  </g>
+  <path id="ru-elevator" class="rust12" d="M200.4,128c15.8,8.8,25.7,21.6,25.7,35.7,0,26.6-34.9,48.1-78,48.1s-78-21.6-78-48.1,9.7-26.6,25.2-35.4"/>
+  <path id="ru-sub" class="rust11" d="M212.9,78.3s-29.1,133.1-65,133.1S82.9,78.3,82.9,78.3"/>
+  <path id="ru-rudder-shape" class="rust13" d="M147.8,243.3c-4.1,0-7.5-28.2-7.5-63.1s14.9-34.8,14.9,0-3.3,63.1-7.5,63.1h.1Z"/>
+  <g id="ru-Scale" class="rust15">
+    <g class="rust15">
+      <g class="rust15">
+        <text class="rust16" transform="translate(58.9 146.1)"><tspan x="0" y="0">100%</tspan></text>
+      </g>
+    </g>
+  </g>
+  <g>
+    <path d="M89.6,57.4l5.1,9-1.9,1-11.3-19.7,7.7-4.4c2.2-1.2,4.1-1.8,5.7-1.6,1.6.2,2.9,1.2,4,3,.7,1.2,1,2.4.9,3.4,0,1-.6,2.1-1.4,3.3.7-.1,1.3-.1,1.9,0,.5.2,1,.5,1.5.9s.8.9,1.2,1.4c.4.5.7,1,1,1.5.4.7.8,1.3,1.2,1.8.3.5.6.8.9,1.1.2.3.5.5.6.6.2.1.4.2.6.2v.2c0,0-1.9,1.2-1.9,1.2-.4-.2-.8-.6-1.2-1.1-.4-.5-.8-1.1-1.2-1.7-.4-.6-.8-1.2-1.2-1.8s-.7-1.1-1-1.4c-.4-.5-.8-.8-1.3-1-.4-.2-.9-.3-1.3-.2-.4,0-.9.1-1.4.3-.5.2-.9.4-1.4.7l-5.9,3.3ZM94.5,52.5c.7-.4,1.3-.8,1.8-1.3.5-.5.9-1,1.2-1.6.3-.6.4-1.2.3-1.8,0-.6-.2-1.3-.6-2-.4-.7-.9-1.3-1.4-1.6-.5-.3-1.1-.5-1.7-.5-.6,0-1.2,0-1.9.3s-1.3.5-1.9.9l-5.9,3.4,4.3,7.6,5.8-3.3Z"/>
+    <path d="M103.6,36.1l2.1-.6,4,12.9c.8,2.7,2,4.5,3.3,5.4s3.2,1,5.4.3c1.2-.4,2.1-.8,2.8-1.4.7-.6,1.2-1.2,1.5-2,.3-.8.4-1.7.3-2.7,0-1-.3-2.2-.7-3.5l-4-12.9,2.1-.6,4.2,13.5c.9,2.8.9,5.2,0,7.2-.9,1.9-2.8,3.3-5.6,4.2-2.8.9-5.2.8-7.1-.3s-3.2-3-4.1-5.8l-4.2-13.5Z"/>
+    <path d="M131.2,51.8l-1.8-22.7,7.7-.6c.6,0,1.3,0,1.9-.1.6,0,1.2,0,1.8,0,.6,0,1.2.2,1.8.4.6.2,1.1.4,1.7.8.8.5,1.5,1.1,2,1.9.5.7,1,1.5,1.3,2.4.4.8.6,1.7.8,2.6s.3,1.7.4,2.5c0,.8,0,1.5,0,2.3,0,.8-.1,1.6-.3,2.3-.2.8-.4,1.5-.7,2.2-.3.7-.7,1.4-1.2,2-.5.6-1,1.1-1.6,1.6-.6.4-1.2.7-1.9,1-.7.3-1.4.4-2.1.6-.7.1-1.5.2-2.2.3l-7.7.6ZM133.2,49.8l5.1-.4c1,0,1.9-.2,2.7-.4.8-.2,1.7-.5,2.5-1.1.7-.4,1.3-1,1.7-1.7.4-.7.8-1.4,1-2.2s.4-1.6.4-2.5c0-.8,0-1.7,0-2.4,0-.8-.2-1.6-.4-2.5s-.4-1.6-.8-2.4c-.4-.7-.8-1.4-1.4-2-.6-.6-1.2-1.1-2.1-1.4-.7-.3-1.5-.5-2.4-.5-.9,0-1.9,0-2.8,0l-5.1.4,1.5,19Z"/>
+    <path d="M152.8,50.5l3.2-22.5,7.7,1.1c.6,0,1.2.2,1.8.3.6.1,1.2.3,1.8.5s1.1.5,1.6.8c.5.3,1,.7,1.5,1.1.7.6,1.2,1.4,1.6,2.2.4.9.6,1.7.8,2.6.2.9.2,1.8.2,2.7,0,.9,0,1.7-.2,2.5s-.3,1.5-.5,2.3-.5,1.5-.8,2.2-.7,1.4-1.1,2c-.4.6-1,1.2-1.6,1.7-.6.5-1.2.9-1.9,1.2-.7.3-1.4.5-2.1.6-.7.1-1.4.1-2.2.1-.7,0-1.5,0-2.2-.2l-7.7-1.1ZM155.2,49l5.1.7c1,.1,1.9.2,2.7.2.9,0,1.8-.2,2.7-.5.8-.3,1.5-.7,2.1-1.3.6-.6,1.1-1.2,1.4-1.9s.7-1.5.9-2.3c.2-.8.4-1.6.5-2.4.1-.8.2-1.6.2-2.5s0-1.7-.3-2.5c-.2-.8-.5-1.6-.9-2.3-.4-.7-1-1.3-1.7-1.9-.6-.4-1.4-.8-2.3-1-.9-.2-1.8-.4-2.8-.6l-5.1-.7-2.7,18.9Z"/>
+    <path d="M174.2,54.2l7.7-21.4,14.2,5.2-.6,1.7-12.2-4.4-2.8,7.7,11,4-.6,1.7-11-4-3.1,8.5,12.5,4.5-.6,1.7-14.5-5.3Z"/>
+    <path d="M198.4,52.9l-5.4,8.8-1.8-1.1,11.8-19.4,7.6,4.6c2.1,1.3,3.5,2.7,4.2,4.2.6,1.5.4,3.1-.7,4.9-.7,1.2-1.6,2-2.5,2.5-.9.4-2.1.5-3.5.4.5.5.7,1.1.8,1.7,0,.6,0,1.2,0,1.7-.1.6-.3,1.2-.6,1.7-.3.6-.6,1.1-.9,1.6-.4.7-.8,1.4-1,1.9-.3.5-.4.9-.6,1.3-.1.3-.2.6-.2.9,0,.2,0,.4,0,.6v.2c0,0-2.1-1.2-2.1-1.2,0-.4.1-1,.4-1.6.3-.6.6-1.3.9-1.9.3-.7.7-1.3,1-1.9.3-.6.6-1.1.7-1.5.2-.6.3-1.1.2-1.6,0-.5-.2-.9-.4-1.2-.2-.4-.6-.7-1-1-.4-.3-.8-.6-1.3-.9l-5.8-3.5ZM205.1,54.9c.7.4,1.4.7,2,.9.7.2,1.3.3,1.9.2.6,0,1.2-.2,1.8-.6.5-.3,1-.8,1.4-1.5.4-.7.7-1.4.7-2,0-.6-.1-1.2-.4-1.7-.3-.5-.7-1-1.2-1.5s-1.1-.9-1.7-1.2l-5.8-3.5-4.5,7.5,5.7,3.5Z"/>
+  </g>
+  <circle id="ru-reflection" class="rust14" cx="147.8" cy="150" r="128.8"/>
+</svg></div>
+    <div class="dc-strip">
+      <div class="dc y"><div class="dclabel">Rudd</div><div class="dcval" id="v-rudd">0%</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Gamepad bar -->
+<div id="gp-bar">
+  <div class="gpdot" id="gpdot"></div>
+  <span id="gplabel">No gamepad · KB: ↑↓ pitch · ←→ roll · A/D rudder · Q/E throttle · IJKL freelook · Space reset</span>
+</div>
+
+<!-- Start overlay / options screen -->
+<div id="start-overlay">
+  <h1>VOXEL FLIER</h1>
+  <h2>First-Person Flight Simulator</h2>
+
+  <div class="opt-grid">
+
+    <!-- TERRAIN -->
+    <div class="opt-group">
+      <div class="opt-group-title">⛰ Terrain</div>
+      <div class="opt-row">
+        <div class="opt-slider-row">
+          <div class="opt-slider-label"><span>Ruggedness</span><b id="lbl-rug">Medium</b></div>
+          <input type="range" id="sl-rug" min="0" max="4" step="1" value="2"
+            oninput="updateLabel('lbl-rug',['Flat','Gentle','Medium','Hilly','Alpine'][this.value])">
+        </div>
+        <div class="opt-slider-row">
+          <div class="opt-slider-label"><span>Sea level</span><b id="lbl-sea">Normal</b></div>
+          <input type="range" id="sl-sea" min="0" max="4" step="1" value="2"
+            oninput="updateLabel('lbl-sea',['Arid','Low','Normal','Flooded','Ocean'][this.value])">
+        </div>
+      </div>
+    </div>
+
+    <!-- TIME OF DAY -->
+    <div class="opt-group">
+      <div class="opt-group-title">☀ Time of Day</div>
+      <div class="opt-row">
+        <div class="opt-btn-row">
+          <button class="opt-btn sel" data-group="tod" data-val="day"     onclick="pick(this)">Day</button>
+          <button class="opt-btn"     data-group="tod" data-val="twilight" onclick="pick(this)">Twilight</button>
+          <button class="opt-btn"     data-group="tod" data-val="night"    onclick="pick(this)">Night</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- WEATHER -->
+    <div class="opt-group">
+      <div class="opt-group-title">🌤 Weather</div>
+      <div class="opt-row">
+        <div class="opt-btn-row">
+          <button class="opt-btn sel" data-group="wx" data-val="clear"  onclick="pick(this)">Clear</button>
+          <button class="opt-btn"     data-group="wx" data-val="cloudy" onclick="pick(this)">Cloudy</button>
+          <button class="opt-btn"     data-group="wx" data-val="foggy"  onclick="pick(this)">Foggy</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="start-key">
+    <b>Left Stick</b> Roll + Pitch &nbsp;·&nbsp; <b>Right Stick</b> Freelook &nbsp;·&nbsp; <b>RB/LB</b> Yaw<br>
+    <b>RT/LT</b> Throttle &nbsp;·&nbsp; <b>Start/Space</b> Reset &nbsp;·&nbsp; KB: <b>↑↓ ←→</b> A/D Q/E IJKL
+  </div>
+  <button id="start-btn" onclick="startSim()">ENGAGE</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════════════════
+//  OPTIONS UI helpers (run before Three.js init)
+// ═══════════════════════════════════════════════════════════════════════
+function updateLabel(id, txt) { document.getElementById(id).textContent = txt; }
+function pick(btn) {
+  document.querySelectorAll(`.opt-btn[data-group="${btn.dataset.group}"]`)
+    .forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+function getOpt(group) {
+  return document.querySelector(`.opt-btn.sel[data-group="${group}"]`)?.dataset.val || '';
+}
+function getSlider(id) { return parseInt(document.getElementById(id)?.value || 2); }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  CONFIG
+// ═══════════════════════════════════════════════════════════════════════
+const WORLD_W    = 2048;  // total voxel columns X
+const WORLD_D    = 2048;  // total voxel columns Z
+const HORIZON    = 192;   // visible voxel radius around player
+const CHUNK_SIZE = 16;    // voxels per chunk side
+const VOXEL_SIZE = 4;     // metres per voxel
+
+// These are set dynamically from options at startSim()
+let SEA_LEVEL  = 4;
+let MAX_HEIGHT = 32;
+let RUG_SCALE  = 1.0;  // terrain ruggedness multiplier
+
+const SPEED_MIN    = 20;
+const SPEED_MAX    = 140;
+const SPEED_INIT   = 60;
+const THROTTLE_K   = 20;
+const PITCH_RATE   = 32;
+const ROLL_RATE    = 42;
+const RUDDER_RATE  = 22;
+const STAB_K       = 0.03;
+const TURN_K       = 9.0;
+const INPUT_SMOOTH = 0.10;
+const DZ           = 0.12;
+const LOOK_RATE    = 80;
+const LOOK_RETURN  = 0.04;
+const LOOK_LIMIT_H = 120;
+const LOOK_LIMIT_V = 60;
+
+// ═══════════════════════════════════════════════════════════════════════
+//  THREE.JS SETUP
+// ═══════════════════════════════════════════════════════════════════════
+const canvas   = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+renderer.setClearColor(0x87ceeb);
+
+const scene = new THREE.Scene();
+const FOG_NEAR = VOXEL_SIZE * (HORIZON * 0.55);
+const FOG_FAR  = VOXEL_SIZE * (HORIZON * 0.95);
+scene.fog = new THREE.Fog(0x87ceeb, FOG_NEAR, FOG_FAR);
+
+// Aircraft node — holds world position + orientation
+const aircraft = new THREE.Object3D();
+scene.add(aircraft);
+
+// Camera is a child of aircraft — freelook offsets it locally
+const camera = new THREE.PerspectiveCamera(75, 1, 0.5, VOXEL_SIZE * (HORIZON + 10));
+aircraft.add(camera);
+camera.position.set(0, 0, 0);
+
+function onResize() {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+// ── Lighting (refs kept for dynamic update) ──
+const sun    = new THREE.DirectionalLight(0xfff5e0, 1.2);
+const ambL   = new THREE.AmbientLight(0x6080a0, 0.55);
+const hemiL  = new THREE.HemisphereLight(0x87ceeb, 0x5a7a30, 0.4);
+sun.position.set(200, 400, 150);
+scene.add(sun); scene.add(ambL); scene.add(hemiL);
+
+// ── Sky dome ──
+const skyDomeMat = new THREE.MeshBasicMaterial({ color: 0x87ceeb, side: THREE.BackSide, fog: false });
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(VOXEL_SIZE * (HORIZON + 5), 16, 8), skyDomeMat
+);
+scene.add(skyDome);
+
+// ── Clouds (added after options chosen) ──
+let cloudGroup = null;
+
+// Apply time-of-day + weather to scene (called at startSim)
+function applyEnvironment() {
+  const tod = getOpt('tod');   // 'day' | 'twilight' | 'night'
+  const wx  = getOpt('wx');    // 'clear' | 'cloudy' | 'foggy'
+
+  // ── Time of day ──
+  const ENV = {
+    day:     { sky:0x87ceeb, fog:0x87ceeb, sunCol:0xfff5e0, sunInt:1.2, ambCol:0x6080a0, ambInt:0.55, hemiSky:0x87ceeb, hemiGnd:0x5a7a30, hemiInt:0.4, sunPos:[200,400,150] },
+    twilight:{ sky:0x1a1035, fog:0x2a1828, sunCol:0xff6020, sunInt:0.7, ambCol:0x301828, ambInt:0.3,  hemiSky:0x2a1040, hemiGnd:0x1a0c08, hemiInt:0.2, sunPos:[400,60,200] },
+    night:   { sky:0x03050f, fog:0x03050f, sunCol:0x203060, sunInt:0.15,ambCol:0x080c20, ambInt:0.15, hemiSky:0x05080f, hemiGnd:0x020304, hemiInt:0.1, sunPos:[0,100,0]    },
+  };
+  const e = ENV[tod] || ENV.day;
+
+  skyDomeMat.color.setHex(e.sky);
+  sun.color.setHex(e.sunCol);    sun.intensity = e.sunInt;
+  sun.position.set(...e.sunPos);
+  ambL.color.setHex(e.ambCol);   ambL.intensity = e.ambInt;
+  hemiL.color.setHex(e.hemiSky); hemiL.groundColor.setHex(e.hemiGnd); hemiL.intensity = e.hemiInt;
+
+  // ── Weather → fog & cloud opacity ──
+  const fogCol  = e.fog;
+  let fogNear = FOG_NEAR, fogFar = FOG_FAR, cloudOpacity = 0.65;
+  if (wx === 'cloudy') { cloudOpacity = 0.90; }
+  if (wx === 'foggy')  { fogNear = VOXEL_SIZE * 8; fogFar = VOXEL_SIZE * 40; cloudOpacity = 0.55; }
+
+  scene.fog = new THREE.Fog(fogCol, fogNear, fogFar);
+  renderer.setClearColor(fogCol);
+
+  // Clouds
+  if (cloudGroup) { aircraft.remove(cloudGroup); }
+  cloudGroup = new THREE.Group();
+  const nClouds = wx === 'cloudy' ? 90 : wx === 'foggy' ? 30 : 50;
+  const cloudMat = new THREE.MeshBasicMaterial({ color: tod === 'night' ? 0x101825 : tod === 'twilight' ? 0x6a3030 : 0xffffff, transparent: true, opacity: cloudOpacity });
+  const cloudGeo = new THREE.BoxGeometry(VOXEL_SIZE * 10, VOXEL_SIZE * 2, VOXEL_SIZE * 5);
+  for (let i = 0; i < nClouds; i++) {
+    const cm = new THREE.Mesh(cloudGeo, cloudMat);
+    const ang = Math.random() * Math.PI * 2;
+    const r   = VOXEL_SIZE * (20 + Math.random() * (HORIZON * 0.7));
+    cm.position.set(Math.cos(ang)*r, (MAX_HEIGHT + 14 + Math.random()*12) * VOXEL_SIZE, Math.sin(ang)*r);
+    cloudGroup.add(cm);
+  }
+  aircraft.add(cloudGroup);
+
+  // Stars at night/twilight
+  if (tod === 'night' || tod === 'twilight') {
+    const starGeo = new THREE.BufferGeometry();
+    const starPos = [];
+    for (let i = 0; i < 800; i++) {
+      const theta = Math.random() * Math.PI * 2;
+      const phi   = Math.acos(2 * Math.random() - 1);
+      const r2    = VOXEL_SIZE * (HORIZON + 3);
+      starPos.push(Math.sin(phi)*Math.cos(theta)*r2, Math.cos(phi)*r2, Math.sin(phi)*Math.sin(theta)*r2);
+    }
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xffffff, size: tod === 'night' ? 1.8 : 0.9, sizeAttenuation: false });
+    const stars = new THREE.Points(starGeo, starMat);
+    aircraft.add(stars);
+  }
+}
+
+// Apply terrain ruggedness from slider
+function applyTerrainOptions() {
+  const rug = getSlider('sl-rug');  // 0–4
+  const sea = getSlider('sl-sea');  // 0–4
+  // ruggedness: flat=0.3 → alpine=2.5
+  RUG_SCALE  = [0.25, 0.55, 1.0, 1.6, 2.4][rug];
+  MAX_HEIGHT = Math.round([16, 22, 32, 48, 72][rug]);
+  SEA_LEVEL  = [1, 2, 4, 8, 14][sea];
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  TERRAIN — on-demand heightmap + streaming chunk cache
+// ═══════════════════════════════════════════════════════════════════════
+
+// Noise helpers (integer grid → deterministic float 0–1)
+function hash2(x, z) {
+  let h = (Math.imul(x, 374761393) + Math.imul(z, 668265263)) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) | 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
+}
+function valueNoise(x, z, scale) {
+  const xi = Math.floor(x / scale), zi = Math.floor(z / scale);
+  const fx = (x / scale) - xi,      fz = (z / scale) - zi;
+  const ux = fx * fx * (3 - 2 * fx), uz = fz * fz * (3 - 2 * fz);
+  return (
+    hash2(xi,   zi  ) * (1-ux) * (1-uz) +
+    hash2(xi+1, zi  ) *    ux  * (1-uz) +
+    hash2(xi,   zi+1) * (1-ux) *    uz  +
+    hash2(xi+1, zi+1) *    ux  *    uz
+  );
+}
+function terrainHeight(vx, vz) {
+  let h =  valueNoise(vx, vz, 180) * 0.50;
+      h += valueNoise(vx, vz,  80) * 0.25;
+      h += valueNoise(vx, vz,  35) * 0.15;
+      h += valueNoise(vx, vz,  12) * 0.07;
+      h += valueNoise(vx, vz,   4) * 0.03;
+  // Apply ruggedness: push values away from 0.5 (more contrast = more peaks/valleys)
+  h = 0.5 + (h - 0.5) * RUG_SCALE;
+  h = Math.max(0, Math.min(1, h));
+  return Math.max(SEA_LEVEL, Math.round(h * MAX_HEIGHT));
+}
+
+// Height query — voxel coords wrap on WORLD_W/D
+function voxelH(vx, vz) {
+  const wx = ((vx % WORLD_W) + WORLD_W) % WORLD_W;
+  const wz = ((vz % WORLD_D) + WORLD_D) % WORLD_D;
+  return terrainHeight(wx, wz);
+}
+// Height query — world metres (returns surface Y in metres)
+function groundY(wx, wz) {
+  return voxelH(Math.floor(wx / VOXEL_SIZE), Math.floor(wz / VOXEL_SIZE)) * VOXEL_SIZE;
+}
+
+// ── Materials ──
+const MAT = {
+  grass: new THREE.MeshLambertMaterial({ color: 0x4a7c3f }),
+  dirt:  new THREE.MeshLambertMaterial({ color: 0x8b6343 }),
+  rock:  new THREE.MeshLambertMaterial({ color: 0x7a7272 }),
+  snow:  new THREE.MeshLambertMaterial({ color: 0xeef2f5 }),
+  sand:  new THREE.MeshLambertMaterial({ color: 0xd4b87a }),
+  water: new THREE.MeshLambertMaterial({ color: 0x2a6fbb, transparent: true, opacity: 0.78 }),
+};
+const BOX = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
+
+function matFor(h) {
+  const r = h / MAX_HEIGHT;
+  if (h <= SEA_LEVEL + 1) return MAT.sand;
+  if (r > 0.88) return MAT.snow;
+  if (r > 0.66) return MAT.rock;
+  return MAT.grass;
+}
+
+// Chunk mesh cache — key = "cx,cz" in chunk coords
+const chunkCache  = new Map();   // key → THREE.Group
+const chunkInView = new Set();   // keys currently needed
+
+function chunkKey(cx, cz) { return cx + ',' + cz; }
+
+function buildChunk(cx, cz) {
+  const grp = new THREE.Group();
+  const x0 = cx * CHUNK_SIZE, z0 = cz * CHUNK_SIZE;
+  for (let dz = 0; dz < CHUNK_SIZE; dz++) {
+    for (let dx = 0; dx < CHUNK_SIZE; dx++) {
+      const vx = x0 + dx, vz = z0 + dz;
+      const h  = voxelH(vx, vz);
+      const wx = vx * VOXEL_SIZE + VOXEL_SIZE / 2;
+      const wz = vz * VOXEL_SIZE + VOXEL_SIZE / 2;
+
+      // Top voxel (surface)
+      const top = new THREE.Mesh(BOX, matFor(h));
+      top.position.set(wx, h * VOXEL_SIZE - VOXEL_SIZE / 2, wz);
+      grp.add(top);
+
+      // Sub-surface layer (depth illusion)
+      if (h > 1) {
+        const sub = new THREE.Mesh(BOX, h > MAX_HEIGHT * 0.66 ? MAT.rock : MAT.dirt);
+        sub.position.set(wx, (h - 1) * VOXEL_SIZE - VOXEL_SIZE / 2, wz);
+        grp.add(sub);
+      }
+
+      // Water cap
+      if (h <= SEA_LEVEL) {
+        const wat = new THREE.Mesh(BOX, MAT.water);
+        wat.position.set(wx, SEA_LEVEL * VOXEL_SIZE - VOXEL_SIZE / 2, wz);
+        grp.add(wat);
+      }
+    }
+  }
+  return grp;
+}
+
+// Called each frame — stream chunks in/out based on aircraft world position
+function streamTerrain(wx, wz) {
+  // Player chunk coords
+  const pcx = Math.floor(wx / VOXEL_SIZE / CHUNK_SIZE);
+  const pcz = Math.floor(wz / VOXEL_SIZE / CHUNK_SIZE);
+  const CR  = Math.ceil(HORIZON / CHUNK_SIZE) + 1;
+
+  chunkInView.clear();
+  for (let dz = -CR; dz <= CR; dz++) {
+    for (let dx = -CR; dx <= CR; dx++) {
+      // Cull to circular horizon
+      if (dx * dx + dz * dz > (CR) * (CR)) continue;
+      const cx  = ((pcx + dx) % Math.ceil(WORLD_W / CHUNK_SIZE) + Math.ceil(WORLD_W / CHUNK_SIZE)) % Math.ceil(WORLD_W / CHUNK_SIZE);
+      const cz  = ((pcz + dz) % Math.ceil(WORLD_D / CHUNK_SIZE) + Math.ceil(WORLD_D / CHUNK_SIZE)) % Math.ceil(WORLD_D / CHUNK_SIZE);
+      const key = chunkKey(cx, cz);
+      chunkInView.add(key);
+
+      if (!chunkCache.has(key)) {
+        const grp = buildChunk(cx, cz);
+        scene.add(grp);
+        chunkCache.set(key, grp);
+      }
+    }
+  }
+
+  // Remove chunks that scrolled out of view
+  for (const [key, grp] of chunkCache) {
+    if (!chunkInView.has(key)) {
+      scene.remove(grp);
+      grp.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+      chunkCache.delete(key);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FLIGHT STATE
+// ═══════════════════════════════════════════════════════════════════════
+const aircraftQuat = new THREE.Quaternion();  // aircraft world orientation
+const euler        = new THREE.Euler(0, 0, 0, 'YXZ');
+const pos          = new THREE.Vector3();     // aircraft world position
+const UP           = new THREE.Vector3(0, 1, 0);
+const _dq          = new THREE.Quaternion();
+const _fwd         = new THREE.Vector3();
+const _right       = new THREE.Vector3();
+const _up          = new THREE.Vector3();
+
+let speed     = SPEED_INIT;
+let prevAltY  = null;
+let vertSpeed = 0;
+
+// Smoothed flight inputs
+let pitchSmooth  = 0;  // from LS-Y
+let rollSmooth   = 0;  // from LS-X
+let rudderSmooth = 0;  // from RB (+1) / LB (-1)
+
+// Freelook angles (local to aircraft, degrees)
+let lookYaw   = 0;  // RS-X → pan left/right
+let lookPitch = 0;  // RS-Y → tilt up/down
+
+// Instrument display values
+let dispPitch = 0, dispRoll = 0, dispYaw = 0, dispRudder = 0;
+
+function resetFlight() {
+  const midX = (WORLD_W / 2) * VOXEL_SIZE;
+  const midZ = (WORLD_D / 2) * VOXEL_SIZE;
+  pos.set(midX, groundY(midX, midZ) + 50, midZ + 80);
+  aircraftQuat.identity();
+  speed        = SPEED_INIT;
+  pitchSmooth  = 0; rollSmooth  = 0; rudderSmooth = 0;
+  lookYaw      = 0; lookPitch   = 0;
+  prevAltY     = null; vertSpeed = 0;
+}
+resetFlight();
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INPUT
+// ═══════════════════════════════════════════════════════════════════════
+let gpIdx = null;
+const K   = {};
+
+const _keydownHandler = e => {
+  K[e.code] = true;
+  if (e.code === 'Space') resetFlight();
+  e.preventDefault();
+};
+addEventListener('keydown', _keydownHandler);
+addEventListener('keyup', e => { K[e.code] = false; });
+
+addEventListener('gamepadconnected', e => {
+  gpIdx = e.gamepad.index;
+  document.getElementById('gpdot').classList.add('on');
+  document.getElementById('gplabel').textContent = e.gamepad.id.slice(0, 46);
+});
+addEventListener('gamepaddisconnected', e => {
+  if (e.gamepad.index !== gpIdx) return;
+  gpIdx = null;
+  document.getElementById('gpdot').classList.remove('on');
+  document.getElementById('gplabel').textContent =
+    'KB: ↑↓ pitch · ←→ roll · QE throttle · AD rudder · IJKL freelook · Space reset';
+});
+
+// Raw inputs read each frame
+let rawPitch = 0, rawRoll = 0, rawRudder = 0;
+let rawLookX = 0, rawLookY = 0;
+let throttleInput = 0;
+
+function readInput() {
+  rawPitch = rawRoll = rawRudder = rawLookX = rawLookY = throttleInput = 0;
+
+  if (gpIdx !== null) {
+    const gp = navigator.getGamepads()[gpIdx];
+    if (gp) {
+      // Left stick → roll (X) + pitch (Y)
+      rawRoll  =  (Math.abs(gp.axes[0] || 0) > DZ ? gp.axes[0] : 0);
+      rawPitch = -(Math.abs(gp.axes[1] || 0) > DZ ? gp.axes[1] : 0);
+
+      rawLookX = -(Math.abs(gp.axes[2] || 0) > DZ ? gp.axes[2] : 0);
+      rawLookY =  (Math.abs(gp.axes[3] || 0) > DZ ? gp.axes[3] : 0);
+
+      // Triggers → throttle  (RT = +, LT = -)
+      const lt = gp.buttons[6]?.value || 0;
+      const rt = gp.buttons[7]?.value || 0;
+      throttleInput = rt - lt;
+
+      // RB = yaw right, LB = yaw left
+      const lb = gp.buttons[4]?.pressed ? 1 : 0;
+      const rb = gp.buttons[5]?.pressed ? 1 : 0;
+      rawRudder = rb - lb;
+
+      // D-pad as flight fallback
+      if (gp.buttons[12]?.pressed) rawPitch = -1;
+      if (gp.buttons[13]?.pressed) rawPitch =  1;
+      if (gp.buttons[14]?.pressed) rawRoll  = -1;
+      if (gp.buttons[15]?.pressed) rawRoll  =  1;
+
+      // Start/Select → reset
+      if (gp.buttons[8]?.pressed || gp.buttons[9]?.pressed) { resetFlight(); resetGPWS?.(); }
+    }
+  }
+
+  // Keyboard fallback
+  if (K['ArrowUp'])    rawPitch = -1;
+  if (K['ArrowDown'])  rawPitch =  1;
+  if (K['ArrowLeft'])  rawRoll   = -1;
+  if (K['ArrowRight']) rawRoll   =  1;
+  if (K['KeyA'])       rawRudder = -1;
+  if (K['KeyD'])       rawRudder =  1;
+  if (K['KeyQ'])       throttleInput = -1;
+  if (K['KeyE'])       throttleInput =  1;
+  if (K['KeyI'])       rawLookY =  1;
+  if (K['KeyK'])       rawLookY = -1;
+  if (K['KeyJ'])       rawLookX  = -1;
+  if (K['KeyL'])       rawLookX  =  1;
+
+  // Pitch stays smoothed, roll is direct
+  pitchSmooth += (rawPitch - pitchSmooth) * INPUT_SMOOTH;
+  rollSmooth   = rawRoll;
+  rudderSmooth += (rawRudder - rudderSmooth) * INPUT_SMOOTH;
+  // Freelook is direct (no smoothing needed — feels better responsive)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PHYSICS
+// ═══════════════════════════════════════════════════════════════════════
+function updateFlight(dt) {
+  // 1. Throttle
+  speed = Math.max(SPEED_MIN, Math.min(SPEED_MAX, speed + throttleInput * THROTTLE_K * dt));
+
+  // 2. Local axes from aircraft quaternion
+  _fwd  .set(0, 0, -1).applyQuaternion(aircraftQuat);
+  _right.set(1, 0,  0).applyQuaternion(aircraftQuat);
+
+  // 3. Pitch — rotate around local right axis
+  if (Math.abs(pitchSmooth) > 0.001) {
+    _dq.setFromAxisAngle(_right, -pitchSmooth * PITCH_RATE * dt * Math.PI / 180);
+    aircraftQuat.premultiply(_dq);
+  }
+
+  // 4. Roll — rotate around local forward axis
+  if (Math.abs(rollSmooth) > 0.001) {
+    _dq.setFromAxisAngle(_fwd, rollSmooth * ROLL_RATE * dt * Math.PI / 180);
+    aircraftQuat.premultiply(_dq);
+  }
+
+  // 5. Direct rudder yaw — rotate around world UP axis
+  if (Math.abs(rudderSmooth) > 0.001) {
+    _dq.setFromAxisAngle(UP, -rudderSmooth * RUDDER_RATE * dt * Math.PI / 180);
+    aircraftQuat.premultiply(_dq);
+  }
+
+  // 6. Extract bank angle directly from quaternion (no gimbal lock)
+  // Project local UP and local FWD into world space, compute signed bank around fwd axis
+  _up.set(0,1,0).applyQuaternion(aircraftQuat);
+  const localFwdX = _fwd.x, localFwdZ = _fwd.z;
+  const bankAngle = Math.atan2(_up.x * localFwdZ - _up.z * localFwdX, _up.y);
+
+  // 7. Coordinated turn — bank → yaw rate (acts on world UP)
+  const tanBank  = Math.tan(Math.max(-1.1, Math.min(1.1, bankAngle)));
+  const turnRate = tanBank * TURN_K * dt * Math.PI / 180;
+  _dq.setFromAxisAngle(UP, -turnRate);
+  aircraftQuat.premultiply(_dq);
+
+  // 8. Dihedral stabilisation — bleed bank back toward 0
+  if (Math.abs(bankAngle) > 0.001 && Math.abs(rollSmooth) < 0.05) {
+    _fwd.set(0, 0, -1).applyQuaternion(aircraftQuat);
+    _dq.setFromAxisAngle(_fwd, -bankAngle * STAB_K);
+    aircraftQuat.premultiply(_dq);
+  }
+
+  // 9. Gentle gravity nose-down (loses lift slightly when banked)
+  _right.set(1, 0, 0).applyQuaternion(aircraftQuat);
+  _dq.setFromAxisAngle(_right, -0.006 * dt);
+  aircraftQuat.premultiply(_dq);
+
+  // 10. Normalise quaternion to prevent drift
+  aircraftQuat.normalize();
+
+  // 11. Re-extract euler for instrument readout
+  euler.setFromQuaternion(aircraftQuat, 'YXZ');
+  dispPitch  = -euler.x * 180 / Math.PI;
+  dispRoll   = -euler.z * 180 / Math.PI;
+  dispYaw    = ((euler.y * 180 / Math.PI) % 360 + 360) % 360;
+  dispRudder = rudderSmooth * 100;
+
+  // 12. Move forward along aircraft nose vector
+  _fwd.set(0, 0, -1).applyQuaternion(aircraftQuat);
+  pos.addScaledVector(_fwd, speed * dt);
+
+  // 13. Wrap world (torus — infinite landscape)
+  const worldMetres = WORLD_W * VOXEL_SIZE;
+  pos.x = ((pos.x % worldMetres) + worldMetres) % worldMetres;
+  pos.z = ((pos.z % worldMetres) + worldMetres) % worldMetres;
+
+  // 14. Terrain collision
+  const surfaceY = groundY(pos.x, pos.z) + VOXEL_SIZE * 1.5;
+  if (pos.y < surfaceY) {
+    pos.y = surfaceY;
+    if (euler.x < 0) { euler.x *= -0.25; aircraftQuat.setFromEuler(euler); }
+  }
+
+  // 15. Ceiling
+  pos.y = Math.min(pos.y, (MAX_HEIGHT + 24) * VOXEL_SIZE);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  FREELOOK CAMERA
+// ═══════════════════════════════════════════════════════════════════════
+function updateCamera(dt) {
+  // Right stick accumulates look angle directly — hold to pan, release to hold position
+  lookYaw   += rawLookX * LOOK_RATE * dt;
+  lookPitch += rawLookY * LOOK_RATE * dt;
+
+  // Clamp to limits
+  lookYaw   = Math.max(-LOOK_LIMIT_H, Math.min(LOOK_LIMIT_H, lookYaw));
+  lookPitch = Math.max(-LOOK_LIMIT_V, Math.min(LOOK_LIMIT_V, lookPitch));
+
+  // Apply as local rotation on camera (child of aircraft node)
+  const lyRad = lookYaw   * Math.PI / 180;
+  const lpRad = lookPitch * Math.PI / 180;
+  camera.quaternion.setFromEuler(new THREE.Euler(lpRad, lyRad, 0, 'YXZ'));
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INSTRUMENT PANEL
+// ═══════════════════════════════════════════════════════════════════════
+function updateAttitudeInst(pitchVal, rollDeg) {
+  const ind = document.getElementById('p-indicator');
+  if (!ind) return;
+  const yOff = (pitchVal / 100) * (247 * 0.2);
+  ind.setAttribute('transform', `rotate(${rollDeg},125,123.9) translate(0,${yOff})`);
+  const ptr = document.getElementById('roll-pointer');
+  if (ptr) ptr.setAttribute('transform', `rotate(${rollDeg},125,123.9)`);
+}
+function updateYawInst(hdg) {
+  const c = document.getElementById('y-compass');
+  if (c) c.setAttribute('transform', `rotate(${-hdg},125,123.9)`);
+}
+function colorVal(n) {
+  let r,g,b;
+  if (n <= 0.5) { const t=n*2; r=Math.round(255*(1-t)); g=0; b=0; }
+  else          { const t=(n-0.5)*2; r=0; g=Math.round(22+214*t); b=0; }
+  return `rgb(${r},${g},${b})`;
+}
+function updateElevatorInst(val) {
+  const el = document.getElementById('el-elevator-shape');
+  if (!el) return;
+  el.setAttribute('transform', `rotate(${(val/100)*30*-1},180,280)`);
+  el.style.fill = colorVal((val+100)/200);
+  const st = document.querySelector('#el-Scale text tspan');
+  if (st) st.textContent = `${Math.round(val)}%`;
+}
+function updateRudderInst(val) {
+  const ru = document.getElementById('ru-rudder-shape');
+  if (!ru) return;
+  ru.setAttribute('transform', `rotate(${(val/100)*30*-1},150,140)`);
+  ru.style.fill = colorVal((val+100)/200);
+  const st = document.querySelector('#ru-Scale text tspan');
+  if (st) st.textContent = `${Math.round(val)}%`;
+}
+
+function pad3(n) { return String(Math.round(((n%360)+360)%360)).padStart(3,'0'); }
+function cardinal(h) {
+  return ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(h/22.5)%16];
+}
+
+function updateAllInstruments() {
+  const pc = Math.max(-100, Math.min(100, dispPitch * (100/90)));
+  const rc = Math.max(-60,  Math.min(60,  dispRoll));
+  updateAttitudeInst(pc, rc);
+  updateYawInst(dispYaw);
+  updateElevatorInst(-pc);
+  updateRudderInst(dispRudder);
+
+  const pr = Math.round(dispPitch), rr = Math.round(dispRoll);
+  const pEl = document.getElementById('v-pitch');
+  pEl.textContent = (pr>=0?'+':'')+pr+'°';
+  pEl.className = 'dcval'+(pr>3?' pos':pr<-3?' neg':'');
+  const rEl = document.getElementById('v-roll');
+  rEl.textContent = (rr>=0?'R+':'L')+Math.abs(rr)+'°';
+  rEl.className = 'dcval'+(Math.abs(rr)>5?' pos':'');
+  document.getElementById('v-hdg').textContent  = pad3(dispYaw)+'°';
+  document.getElementById('v-card').textContent = cardinal(dispYaw);
+  document.getElementById('v-elev').textContent = (dispPitch>=0?'+':'')+Math.round(-pc)+'%';
+  document.getElementById('v-rudd').textContent = (dispRudder>=0?'+':'')+Math.round(dispRudder)+'%';
+
+  const kts = Math.round(speed * 1.944);
+  document.getElementById('hud-speed').textContent = kts;
+  document.getElementById('hud-alt').textContent   = Math.round(pos.y);
+  document.getElementById('hud-pos').textContent   = `${Math.round(pos.x/VOXEL_SIZE)},${Math.round(pos.z/VOXEL_SIZE)}`;
+  document.getElementById('hud-hdg-val').textContent = pad3(dispYaw)+'°';
+  document.getElementById('hud-hdg-sub').textContent = cardinal(dispYaw);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  ALTITUDE TAPE + GPWS
+// ═══════════════════════════════════════════════════════════════════════
+
+// Build tape tick marks once (covers ±600m range in 20m steps)
+(function buildTape() {
+  const marks = document.getElementById('alt-tape-marks');
+  let html = '';
+  for (let i = 30; i >= -30; i--) {
+    const alt = i * 20;
+    const major = alt % 100 === 0;
+    html += `<div class="alt-mark${major?' major':''}" data-alt="${alt}">${major ? alt : ''}</div>`;
+  }
+  marks.innerHTML = html;
+})();
+
+// GPWS — A320-style callouts
+const GPWS_CALLOUTS = [
+  // { raAlt: radio-altitude threshold, name, text, sub, color, voice, priority }
+  { ra:  2500, name:'2500',      text:'TWO THOUSAND FIVE HUNDRED', sub:'', color:'#4ade80', voice:'two thousand five hundred', prio:0 },
+  { ra:  1000, name:'1000',      text:'ONE THOUSAND',              sub:'', color:'#4ade80', voice:'one thousand',              prio:0 },
+  { ra:   500, name:'500',       text:'FIVE HUNDRED',              sub:'', color:'#facc15', voice:'five hundred',              prio:0 },
+  { ra:   400, name:'400',       text:'FOUR HUNDRED',              sub:'', color:'#facc15', voice:'four hundred',              prio:0 },
+  { ra:   300, name:'300',       text:'THREE HUNDRED',             sub:'', color:'#facc15', voice:'three hundred',             prio:0 },
+  { ra:   200, name:'200',       text:'TWO HUNDRED',               sub:'', color:'#fb923c', voice:'two hundred',               prio:0 },
+  { ra:   100, name:'100',       text:'ONE HUNDRED',               sub:'', color:'#fb923c', voice:'one hundred',               prio:0 },
+  { ra:    50, name:'50',        text:'FIFTY',                     sub:'', color:'#fb923c', voice:'fifty',                     prio:0 },
+  { ra:    40, name:'40',        text:'FORTY',                     sub:'', color:'#fb923c', voice:'forty',                     prio:0 },
+  { ra:    30, name:'30',        text:'THIRTY',                    sub:'', color:'#fb923c', voice:'thirty',                    prio:0 },
+  { ra:    20, name:'20',        text:'TWENTY',                    sub:'', color:'#fb923c', voice:'twenty',                    prio:0 },
+  { ra:    10, name:'10',        text:'TEN',                       sub:'', color:'#f87171', voice:'ten',                       prio:0 },
+];
+
+// EGPWS mode alerts (continuous while condition holds)
+const GPWS_MODES = [
+  { id:'terrain',   text:'TERRAIN  TERRAIN',  sub:'PULL UP',      color:'#ef4444', voice:'terrain terrain, pull up',  prio:10,
+    test: (ra, vs) => ra < 300 && vs < -8   },   // descending fast near terrain
+  { id:'pullup',    text:'PULL UP',           sub:'PULL UP',      color:'#ef4444', voice:'pull up pull up',            prio:10,
+    test: (ra, vs) => ra < 150 && vs < -6   },
+  { id:'sinkrate',  text:'SINK RATE',         sub:'SINK RATE',    color:'#f97316', voice:'sink rate, sink rate',      prio:5,
+    test: (ra, vs) => ra < 800 && vs < -5   },
+  { id:'dontsnk',  text:"DON'T SINK",        sub:'',             color:'#facc15', voice:"don't sink",                prio:4,
+    test: (ra, vs) => ra < 300 && vs < -2 && vs > -5 },
+  { id:'tooLow',   text:'TOO LOW TERRAIN',   sub:'',             color:'#f97316', voice:'too low terrain',            prio:6,
+    test: (ra, vs) => ra < 80  && vs <= 0   },
+  { id:'glideslope',text:'GLIDESLOPE',        sub:'',             color:'#facc15', voice:'glideslope',                prio:3,
+    test: (ra, vs) => ra < 500 && vs < -3 && ra > 100 },
+];
+
+let gpwsState = {
+  lastRA: Infinity,         // previous radio altitude (for descent detection)
+  calloutsGiven: new Set(), // one-shot callouts already played
+  activeMode: null,         // current continuous mode id
+  modeTimer: 0,             // repeat voice every N seconds
+  gpwsEl:    document.getElementById('gpws'),
+  textEl:    document.getElementById('gpws-text'),
+  subEl:     document.getElementById('gpws-sub'),
+  tintEl:    document.getElementById('gpws-tint'),
+};
+
+// Speech synthesis helper
+const synth = window.speechSynthesis;
+let speaking  = false;
+let bestVoice = null;
+
+// Voice preference order — prefer natural OS voices over browser built-ins
+const VOICE_PREFS = [
+  // macOS
+  'Alex', 'Samantha', 'Victoria', 'Karen', 'Daniel',
+  // Windows
+  'Microsoft David', 'Microsoft Mark', 'Microsoft Zira',
+  // Chrome's better online voices (if available)
+  'Google UK English Male', 'Google UK English Female',
+  'Google US English',
+];
+
+function pickBestVoice() {
+  const voices = synth.getVoices();
+  if (!voices.length) return;
+  // Try preferred list in order
+  for (const pref of VOICE_PREFS) {
+    const v = voices.find(v => v.name.includes(pref));
+    if (v) { bestVoice = v; return; }
+  }
+  // Fallback: any non-network English voice
+  bestVoice = voices.find(v => v.lang.startsWith('en') && v.localService)
+           || voices.find(v => v.lang.startsWith('en'))
+           || voices[0];
+}
+
+// Voices load async in Chrome — fire on both ready paths
+pickBestVoice();
+if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = pickBestVoice;
+
+function speak(text, rate=0.85, pitch=0.9) {
+  if (!synth || speaking) return;
+  if (!bestVoice) pickBestVoice();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate  = rate;
+  u.pitch = pitch;
+  u.volume = 1;
+  if (bestVoice) u.voice = bestVoice;
+  u.onend  = () => { speaking = false; };
+  u.onerror = () => { speaking = false; };
+  speaking = true;
+  synth.cancel();
+  synth.speak(u);
+}
+
+const TAPE_PX_PER_M = 20 / 20; // 20px per tick = 20m
+
+function updateAltitudeHUD(dt) {
+  const altM   = Math.round(pos.y);
+  const surfY  = groundY(pos.x, pos.z);
+  const raAlt  = Math.max(0, pos.y - surfY);  // radio altitude above ground
+
+  // Vertical speed (smoothed)
+  if (prevAltY !== null) {
+    const rawVS = (pos.y - prevAltY) / dt;
+    vertSpeed += (rawVS - vertSpeed) * 0.15;
+  }
+  prevAltY = pos.y;
+
+  // ── Tape scroll ──
+  // Centre of tape = current altitude. Each tick = 20m, 20px tall.
+  const marks     = document.getElementById('alt-tape-marks');
+  const offsetPx  = -(altM % 20) * TAPE_PX_PER_M;
+  marks.style.top = (110 + offsetPx - 30 * 20) + 'px';  // centre the ±30 range
+
+  // Update label text on major marks
+  marks.querySelectorAll('.alt-mark.major').forEach(el => {
+    const base = parseInt(el.dataset.alt);
+    const block = Math.round(altM / 100) * 100;
+    el.textContent = base + block;
+  });
+
+  // ── Readout ──
+  document.getElementById('alt-m').textContent = altM;
+  const vsEl = document.getElementById('vspeed-readout');
+  const vsRnd = Math.round(vertSpeed);
+  vsEl.textContent = (vsRnd >= 0 ? '+' : '') + vsRnd + ' m/s';
+  vsEl.className   = vsRnd > 1 ? 'climb' : vsRnd < -1 ? 'desc' : '';
+
+  // ── GPWS ──
+  const vs = vertSpeed;   // m/s  (negative = descending)
+
+  // One-shot altitude callouts (only when descending through the threshold)
+  if (vs < -0.5) {
+    for (const c of GPWS_CALLOUTS) {
+      if (!gpwsState.calloutsGiven.has(c.name) && raAlt <= c.ra && gpwsState.lastRA > c.ra) {
+        gpwsState.calloutsGiven.add(c.name);
+        showGPWS(c.text, c.sub || '', c.color, false);
+        speak(c.voice);
+        break;
+      }
+    }
+  }
+
+  // Reset one-shot callouts when climbing back through 2500
+  if (raAlt > 2600) gpwsState.calloutsGiven.clear();
+
+  // Continuous mode alerts
+  let activeMode = null;
+  for (const m of GPWS_MODES.sort((a,b) => b.prio - a.prio)) {
+    if (m.test(raAlt, vs)) { activeMode = m; break; }
+  }
+
+  if (activeMode) {
+    showGPWS(activeMode.text, activeMode.sub, activeMode.color, true);
+    gpwsState.tintEl.classList.add('active');
+    gpwsState.modeTimer -= dt;
+    if (gpwsState.activeMode !== activeMode.id || gpwsState.modeTimer <= 0) {
+      speak(activeMode.voice, 0.8, 0.8);
+      gpwsState.modeTimer = 2.5;
+    }
+    gpwsState.activeMode = activeMode.id;
+  } else {
+    hideGPWS();
+    gpwsState.activeMode = null;
+    gpwsState.tintEl.classList.remove('active');
+  }
+
+  gpwsState.lastRA = raAlt;
+}
+
+function showGPWS(text, sub, color, persistent) {
+  gpwsState.gpwsEl.style.display = 'block';
+  gpwsState.textEl.textContent   = text;
+  gpwsState.subEl.textContent    = sub;
+  gpwsState.textEl.style.color   = color;
+  gpwsState.textEl.style.fontSize = text.length > 12 ? '22px' : '28px';
+  gpwsState.subEl.style.color    = color;
+  if (!persistent) {
+    clearTimeout(gpwsState._hideTimer);
+    gpwsState._hideTimer = setTimeout(hideGPWS, 2200);
+  }
+}
+function resetGPWS() {
+  gpwsState.calloutsGiven.clear();
+  gpwsState.activeMode = null;
+  gpwsState.lastRA = Infinity;
+  hideGPWS();
+  gpwsState.tintEl.classList.remove('active');
+}
+function hideGPWS() {
+  gpwsState.gpwsEl.style.display = 'none';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  MINIMAP
+// ═══════════════════════════════════════════════════════════════════════
+const mmCanvas = document.getElementById('mm-canvas');
+const mmCtx    = mmCanvas.getContext('2d');
+const MM_SIZE  = 120;   // canvas px
+const MM_VOXELS = 192;  // voxel radius shown on map (matches HORIZON)
+// Pre-generate a terrain colour cache at low res for the minimap
+// We sample every 4 voxels for speed
+const MM_SAMPLE = 4;
+const MM_CELLS  = Math.ceil(MM_VOXELS * 2 / MM_SAMPLE);
+
+function terrainColor(h) {
+  const r = h / MAX_HEIGHT;
+  if (h <= SEA_LEVEL)     return [42,  111, 187];
+  if (h <= SEA_LEVEL + 1) return [212, 184, 122];
+  if (r > 0.88)           return [238, 242, 245];
+  if (r > 0.66)           return [122, 114, 114];
+  return [74, 124, 63];
+}
+
+function drawMinimap() {
+  const pvx = Math.floor(pos.x / VOXEL_SIZE);
+  const pvz = Math.floor(pos.z / VOXEL_SIZE);
+  const cellPx = MM_SIZE / MM_CELLS;
+
+  mmCtx.clearRect(0, 0, MM_SIZE, MM_SIZE);
+
+  // Circular clip
+  mmCtx.save();
+  mmCtx.beginPath();
+  mmCtx.arc(MM_SIZE/2, MM_SIZE/2, MM_SIZE/2, 0, Math.PI*2);
+  mmCtx.clip();
+
+  // Dark base
+  mmCtx.fillStyle = '#060a0f';
+  mmCtx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+
+  // Draw terrain cells
+  for (let dz = 0; dz < MM_CELLS; dz++) {
+    for (let dx = 0; dx < MM_CELLS; dx++) {
+      const vx = pvx - MM_VOXELS + dx * MM_SAMPLE;
+      const vz = pvz - MM_VOXELS + dz * MM_SAMPLE;
+      const h  = voxelH(vx, vz);
+      const [r,g,b] = terrainColor(h);
+      // Shade by height
+      const shade = 0.6 + (h / MAX_HEIGHT) * 0.4;
+      mmCtx.fillStyle = `rgb(${Math.round(r*shade)},${Math.round(g*shade)},${Math.round(b*shade)})`;
+      mmCtx.fillRect(dx * cellPx, dz * cellPx, cellPx + 0.5, cellPx + 0.5);
+    }
+  }
+
+  // Horizon ring fade
+  const grad = mmCtx.createRadialGradient(MM_SIZE/2,MM_SIZE/2,MM_SIZE*0.3, MM_SIZE/2,MM_SIZE/2,MM_SIZE/2);
+  grad.addColorStop(0, 'transparent');
+  grad.addColorStop(1, 'rgba(4,6,10,0.7)');
+  mmCtx.fillStyle = grad;
+  mmCtx.fillRect(0, 0, MM_SIZE, MM_SIZE);
+
+  // Grid lines
+  mmCtx.strokeStyle = 'rgba(63,157,209,0.08)';
+  mmCtx.lineWidth = 0.5;
+  for (let i = 0; i <= 4; i++) {
+    const p = (i/4) * MM_SIZE;
+    mmCtx.beginPath(); mmCtx.moveTo(p,0); mmCtx.lineTo(p,MM_SIZE); mmCtx.stroke();
+    mmCtx.beginPath(); mmCtx.moveTo(0,p); mmCtx.lineTo(MM_SIZE,p); mmCtx.stroke();
+  }
+
+  mmCtx.restore();
+
+  // Aircraft marker — heading arrow at centre
+  const cx = MM_SIZE / 2, cy = MM_SIZE / 2;
+  const hdgRad = -dispYaw * Math.PI / 180;
+  mmCtx.save();
+  mmCtx.translate(cx, cy);
+  mmCtx.rotate(hdgRad);
+  // Arrow body
+  mmCtx.beginPath();
+  mmCtx.moveTo(0, -7);
+  mmCtx.lineTo(4, 4);
+  mmCtx.lineTo(0, 2);
+  mmCtx.lineTo(-4, 4);
+  mmCtx.closePath();
+  mmCtx.fillStyle = '#e84e12';
+  mmCtx.shadowColor = '#e84e12';
+  mmCtx.shadowBlur = 6;
+  mmCtx.fill();
+  mmCtx.restore();
+
+  // Centre dot
+  mmCtx.beginPath();
+  mmCtx.arc(cx, cy, 2, 0, Math.PI*2);
+  mmCtx.fillStyle = '#fff';
+  mmCtx.fill();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GAME LOOP
+// ═══════════════════════════════════════════════════════════════════════
+let lastTime = null;
+let running  = false;
+
+function frame(ts) {
+  if (!running) return;
+  requestAnimationFrame(frame);
+  const dt = lastTime === null ? 0.016 : Math.min((ts - lastTime) / 1000, 0.05);
+  lastTime = ts;
+
+  readInput();
+  updateFlight(dt);
+  updateCamera(dt);
+
+  // Sync Three.js aircraft node to physics state
+  aircraft.position.copy(pos);
+  aircraft.quaternion.copy(aircraftQuat);
+
+  // Sky dome follows aircraft (always centred on player)
+  skyDome.position.copy(pos);
+
+  // Stream terrain chunks around current position
+  streamTerrain(pos.x, pos.z);
+
+  updateAllInstruments();
+  updateAltitudeHUD(dt);
+  drawMinimap();
+  renderer.render(scene, camera);
+}
+
+function startSim() {
+  // Apply options before anything loads
+  applyTerrainOptions();
+  applyEnvironment();
+
+  // Flush any cached chunks so new terrain settings take effect
+  for (const [, grp] of chunkCache) {
+    scene.remove(grp);
+    grp.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+  }
+  chunkCache.clear();
+
+  // Patch reset handlers now that gpwsState exists
+  const origReset = resetFlight;
+  window.resetFlight = function() { origReset(); resetGPWS(); };
+  // Re-wire keyboard Space
+  removeEventListener('keydown', _keydownHandler);
+  addEventListener('keydown', e => {
+    K[e.code] = true;
+    if (e.code === 'Space') resetFlight();
+    e.preventDefault();
+  });
+
+  document.getElementById('start-overlay').style.display = 'none';
+  streamTerrain(pos.x, pos.z);
+  running  = true;
+  lastTime = null;
+  requestAnimationFrame(frame);
+}
+
+// Pre-init instrument visuals
+updateAttitudeInst(0,0); updateYawInst(0); updateElevatorInst(0); updateRudderInst(0);
+</script>
+</body>
+</html>
