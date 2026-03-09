@@ -1283,8 +1283,6 @@ const scene = new THREE.Scene();
 const FOG_NEAR = VOXEL_SIZE * (HORIZON * 0.55);
 const FOG_FAR  = VOXEL_SIZE * (HORIZON * 0.95);
 scene.fog = new THREE.Fog(0x87ceeb, FOG_NEAR, FOG_FAR);
-
-// Aircraft node — holds world position + orientation
 const aircraft = new THREE.Object3D();
 scene.add(aircraft);
 
@@ -1608,7 +1606,7 @@ function readInput() {
       rawPitch = -(Math.abs(gp.axes[1] || 0) > DZ ? gp.axes[1] : 0);
 
       rawLookX = -(Math.abs(gp.axes[2] || 0) > DZ ? gp.axes[2] : 0);
-      rawLookY =  (Math.abs(gp.axes[3] || 0) > DZ ? gp.axes[3] : 0);
+      rawLookY = -(Math.abs(gp.axes[3] || 0) > DZ ? gp.axes[3] : 0);
 
       // Triggers → throttle  (RT = +, LT = -)
       const lt = gp.buttons[6]?.value || 0;
@@ -1628,6 +1626,7 @@ function readInput() {
 
       // Start/Select → reset
       if (gp.buttons[8]?.pressed || gp.buttons[9]?.pressed) { resetFlight(); resetGPWS?.(); }
+      if (gp.buttons[11]?.pressed) { lookYaw = 0; lookPitch = 0; }
     }
   }
 
