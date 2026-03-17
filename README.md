@@ -3,7 +3,6 @@ A browser-based first-person flight simulator built entirely in a single HTML fi
 
 <img width="1725" height="862" alt="imagen" src="https://github.com/user-attachments/assets/84f7c039-3354-45d6-a536-b91bfc4cc8ef" />
 
-
 # Features
 Flight Model
 Quaternion-based orientation system with no gimbal lock — full 360° rolls, inverted flight, and coordinated turns all work correctly. Pitch and roll are controlled via the left stick, rudder via shoulder buttons. Bank angle drives yaw through a tan(bank) turn-rate formula, giving realistic coordinated turns. Gyroscopic stabilisation provides a gentle dihedral effect that bleeds roll back toward wings-level when the stick is released.
