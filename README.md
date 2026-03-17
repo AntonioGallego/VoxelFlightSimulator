@@ -1,8 +1,8 @@
 # VoxelFlightSimulator — First-Person Flight Simulator
 A browser-based first-person flight simulator built entirely in a single HTML file using Three.js. Fly through a procedurally generated 2048×2048 voxel world with realistic flight physics, a full instrument panel, GPWS alerts, and day/night/weather environments — no install, no dependencies beyond a CDN script.
 
-# Built with Claude
-This simulator was designed, coded, and iterated entirely through conversation with Claude Sonnet 4.5, an AI assistant made by Anthropic. Every system — the quaternion flight model, procedural terrain, streaming chunk engine, instrument panel, GPWS callouts, minimap, and options screen — was written by Claude across a single ongoing chat session, with the human providing direction, feedback, and control tweaks. No code was written by hand. Claude Sonnet 4.5 is part of Anthropic's Claude 4 model family. You can try it yourself at claude.ai.
+<img width="1725" height="862" alt="imagen" src="https://github.com/user-attachments/assets/84f7c039-3354-45d6-a536-b91bfc4cc8ef" />
+
 
 # Features
 Flight Model
