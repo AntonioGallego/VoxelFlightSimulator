@@ -142,7 +142,19 @@ html, body { width:100%; height:100%; overflow:hidden; background:#000; }
   width:100%; height:1px; background:rgba(232,78,18,0.7);
   box-shadow:0 0 6px rgba(232,78,18,0.5);
 }
-#alt-readout {
+/* ground fill inside tape */
+#alt-ground {
+  position:absolute; left:0; right:0; bottom:0;
+  background: linear-gradient(to top, rgba(74,124,63,0.85) 0%, rgba(74,124,63,0.3) 70%, transparent 100%);
+  pointer-events:none; z-index:1;
+  border-top: 2px solid rgba(74,180,63,0.9);
+  box-shadow: 0 -2px 8px rgba(74,180,63,0.4);
+  transition: height 0.08s linear;
+}
+#alt-ra {
+  font-family:'Share Tech Mono',monospace; font-size:8px;
+  letter-spacing:1px; text-align:right; color:rgba(74,180,63,0.85);
+}
   font-family:'Orbitron',sans-serif; font-size:14px; font-weight:700;
   color:var(--blue); letter-spacing:2px; text-align:right;
   text-shadow:0 0 10px rgba(63,157,209,0.5);
@@ -180,6 +192,15 @@ html, body { width:100%; height:100%; overflow:hidden; background:#000; }
   background:rgba(200,20,10,0.0); transition:background .2s;
 }
 #gpws-tint.active { background:rgba(200,20,10,0.08); }
+
+/* ── In-cloud overlay ── */
+#cloud-overlay {
+  position:fixed; inset:0; z-index:18; pointer-events:none;
+  background: rgba(220,230,240,0);
+  transition: background 0.6s ease;
+}
+#cloud-overlay.inside { background: rgba(220,230,240,0.45); }
+
 #minimap {
   position:fixed; top:16px; left:50%; transform:translateX(-50%);
   z-index:20; pointer-events:none;
@@ -303,9 +324,13 @@ input[type=range]::-webkit-slider-thumb {
 <!-- Altitude tape (right side) -->
 <div id="alt-tape-wrap">
   <div id="alt-readout"><span>ALT</span><br><b id="alt-m">0</b> <span>m</span></div>
-  <div id="alt-tape"><div id="alt-tape-marks"></div></div>
+  <div id="alt-tape"><div id="alt-tape-marks"></div><div id="alt-ground"></div></div>
   <div id="vspeed-readout">+0 m/s</div>
+  <div id="alt-ra">GND +0 m</div>
 </div>
+
+<!-- In-cloud overlay -->
+<div id="cloud-overlay"></div>
 
 <!-- GPWS screen tint + callout -->
 <div id="gpws-tint"></div>
@@ -1338,26 +1363,96 @@ function applyEnvironment() {
   // ── Weather → fog & cloud opacity ──
   const fogCol  = e.fog;
   let fogNear = FOG_NEAR, fogFar = FOG_FAR, cloudOpacity = 0.65;
-  if (wx === 'cloudy') { cloudOpacity = 0.90; }
+  if (wx === 'cloudy') { cloudOpacity = 0.82; }
   if (wx === 'foggy')  { fogNear = VOXEL_SIZE * 8; fogFar = VOXEL_SIZE * 40; cloudOpacity = 0.55; }
 
   scene.fog = new THREE.Fog(fogCol, fogNear, fogFar);
   renderer.setClearColor(fogCol);
 
-  // Clouds
-  if (cloudGroup) { aircraft.remove(cloudGroup); }
+  // ── Volumetric clouds ──
+  if (cloudGroup) { scene.remove(cloudGroup); }
   cloudGroup = new THREE.Group();
-  const nClouds = wx === 'cloudy' ? 90 : wx === 'foggy' ? 30 : 50;
-  const cloudMat = new THREE.MeshBasicMaterial({ color: tod === 'night' ? 0x101825 : tod === 'twilight' ? 0x6a3030 : 0xffffff, transparent: true, opacity: cloudOpacity });
-  const cloudGeo = new THREE.BoxGeometry(VOXEL_SIZE * 10, VOXEL_SIZE * 2, VOXEL_SIZE * 5);
-  for (let i = 0; i < nClouds; i++) {
-    const cm = new THREE.Mesh(cloudGeo, cloudMat);
-    const ang = Math.random() * Math.PI * 2;
-    const r   = VOXEL_SIZE * (20 + Math.random() * (HORIZON * 0.7));
-    cm.position.set(Math.cos(ang)*r, (MAX_HEIGHT + 14 + Math.random()*12) * VOXEL_SIZE, Math.sin(ang)*r);
-    cloudGroup.add(cm);
+  cloudGroup.userData.clouds = [];
+
+  const cloudCol = tod === 'night' ? 0x1a2030 : tod === 'twilight' ? 0x7a4848 : 0xf0f4ff;
+
+  // Shared puff geometries
+  const puffGeos = [
+    new THREE.SphereGeometry(VOXEL_SIZE * 5,  7, 5),
+    new THREE.SphereGeometry(VOXEL_SIZE * 8,  8, 6),
+    new THREE.SphereGeometry(VOXEL_SIZE * 11, 8, 6),
+  ];
+
+  function makePuffMat(opacity) {
+    return new THREE.MeshLambertMaterial({
+      color: cloudCol, transparent: true, opacity, depthWrite: false,
+    });
   }
-  aircraft.add(cloudGroup);
+
+  function addCloud(cx, baseH, cz, nPuffs, rx, ry, rz, mat) {
+    const pivot = new THREE.Group();
+    pivot.position.set(cx, baseH, cz);
+    for (let p = 0; p < nPuffs; p++) {
+      const geo  = puffGeos[Math.floor(Math.random() * puffGeos.length)];
+      const puff = new THREE.Mesh(geo, mat);
+      puff.position.set(
+        (Math.random() - 0.5) * rx * 1.6,
+        (Math.random() - 0.5) * ry * 1.2,
+        (Math.random() - 0.5) * rz * 1.6,
+      );
+      puff.scale.set(
+        0.9 + Math.random() * 0.4,
+        0.4 + Math.random() * 0.35,
+        0.9 + Math.random() * 0.4,
+      );
+      pivot.add(puff);
+    }
+    cloudGroup.add(pivot);
+    cloudGroup.userData.clouds.push({ px: cx, py: baseH, pz: cz, rx, ry, rz });
+  }
+
+  if (wx === 'clear') {
+    // No clouds at all — clear sky
+
+  } else if (wx === 'cloudy') {
+    const mat = makePuffMat(0.78);
+    const nClouds = 55;
+    for (let i = 0; i < nClouds; i++) {
+      const ang   = Math.random() * Math.PI * 2;
+      const r     = VOXEL_SIZE * (30 + Math.random() * (HORIZON * 0.65));
+      const cx    = Math.cos(ang) * r;
+      const cz    = Math.sin(ang) * r;
+      // Mix: 70% high clouds (above MAX_HEIGHT), 30% low clouds (100–400m — reachable)
+      const isLow = Math.random() < 0.30;
+      const baseH = isLow
+        ? 100 + Math.random() * 300          // 100–400 m — flyable
+        : (MAX_HEIGHT + 10 + Math.random() * 18) * VOXEL_SIZE;
+      const rx = VOXEL_SIZE * (9  + Math.random() * 12);
+      const ry = VOXEL_SIZE * (4  + Math.random() * 5);
+      const rz = VOXEL_SIZE * (9  + Math.random() * 12);
+      const nPuffs = isLow ? (6 + Math.floor(Math.random() * 5)) : (4 + Math.floor(Math.random() * 4));
+      addCloud(cx, baseH, cz, nPuffs, rx, ry, rz, mat);
+    }
+
+  } else if (wx === 'foggy') {
+    // Dense clouds spread across ALL altitudes — from near ground to high up
+    const mat = makePuffMat(0.55);
+    const nClouds = 90;
+    for (let i = 0; i < nClouds; i++) {
+      const ang   = Math.random() * Math.PI * 2;
+      const r     = VOXEL_SIZE * (15 + Math.random() * (HORIZON * 0.75));
+      const cx    = Math.cos(ang) * r;
+      const cz    = Math.sin(ang) * r;
+      // Spread from 30m up to well above MAX_HEIGHT
+      const baseH = 30 + Math.random() * (MAX_HEIGHT + 20) * VOXEL_SIZE;
+      const rx = VOXEL_SIZE * (10 + Math.random() * 14);
+      const ry = VOXEL_SIZE * (5  + Math.random() * 6);
+      const rz = VOXEL_SIZE * (10 + Math.random() * 14);
+      addCloud(cx, baseH, cz, 5 + Math.floor(Math.random() * 5), rx, ry, rz, mat);
+    }
+  }
+
+  scene.add(cloudGroup);
 
   // Stars at night/twilight
   if (tod === 'night' || tod === 'twilight') {
@@ -1419,15 +1514,89 @@ function terrainHeight(vx, vz) {
   return Math.max(SEA_LEVEL, Math.round(h * MAX_HEIGHT));
 }
 
-// Height query — voxel coords wrap on WORLD_W/D
+// ── Runway definitions (in voxel coords) ──
+const RUNWAY_DEFS = [
+  { cvx: 1024, cvz: 1024, len: 80, wid: 8, hdg: 0  },   // RWY 01/19 — N–S
+  { cvx:  820, cvz:  820, len: 60, wid: 6, hdg: 45 },   // RWY 04/22 — diagonal
+];
+const APRON_PAD = 20;   // extra voxels around runway that get graded flat
+
+const runwayFlatH = new Array(RUNWAY_DEFS.length).fill(0);
+
+function initRunwayHeights() {
+  for (let i = 0; i < RUNWAY_DEFS.length; i++) {
+    const rwy = RUNWAY_DEFS[i];
+    const rad = rwy.hdg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    // Sample a grid across the full runway + apron, take the MINIMUM
+    // so the runway never floats above surrounding terrain
+    let minH = Infinity;
+    const halfLen = rwy.len / 2 + APRON_PAD;
+    const halfWid = rwy.wid / 2 + APRON_PAD;
+    for (let a = -halfLen; a <= halfLen; a += 2) {
+      for (let c = -halfWid; c <= halfWid; c += 2) {
+        const vx = Math.round(rwy.cvx + a * sin + c * cos);
+        const vz = Math.round(rwy.cvz + a * cos - c * sin);
+        const h  = terrainHeight(((vx % WORLD_W) + WORLD_W) % WORLD_W,
+                                  ((vz % WORLD_D) + WORLD_D) % WORLD_D);
+        if (h < minH) minH = h;
+      }
+    }
+    runwayFlatH[i] = Math.max(SEA_LEVEL + 2, minH);
+  }
+}
+
+// Returns runway info if vx,vz is inside runway + apron zone
+function runwayAt(vx, vz) {
+  for (let i = 0; i < RUNWAY_DEFS.length; i++) {
+    const rwy = RUNWAY_DEFS[i];
+    const rad = rwy.hdg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const dx = vx - rwy.cvx, dz = vz - rwy.cvz;
+    const along  =  dx * cos + dz * sin;
+    const across = -dx * sin + dz * cos;
+    const halfLen = rwy.len / 2 + APRON_PAD;
+    const halfWid = rwy.wid / 2 + APRON_PAD;
+    if (Math.abs(along) <= halfLen && Math.abs(across) <= halfWid) {
+      return { idx: i, along, across, rwy,
+               onStrip: Math.abs(along) <= rwy.len/2 && Math.abs(across) <= rwy.wid/2 };
+    }
+  }
+  return null;
+}
+
+// Height query — voxel coords wrap on WORLD_W/D, flattened at runways + graded apron
 function voxelH(vx, vz) {
   const wx = ((vx % WORLD_W) + WORLD_W) % WORLD_W;
   const wz = ((vz % WORLD_D) + WORLD_D) % WORLD_D;
+  const hit = runwayAt(wx, wz);
+  if (hit) {
+    const flatH = runwayFlatH[hit.idx];
+    if (hit.onStrip) return flatH;
+    // Graded apron: blend from flatH toward natural terrain at apron edges
+    const rwy = hit.rwy;
+    const rad = rwy.hdg * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const along = hit.along, across = hit.across;
+    const tAlong  = Math.max(0, (Math.abs(along)  - rwy.len/2) / APRON_PAD);
+    const tAcross = Math.max(0, (Math.abs(across) - rwy.wid/2) / APRON_PAD);
+    const t = Math.min(1, Math.max(tAlong, tAcross));
+    const nat = terrainHeight(wx, wz);
+    return Math.round(flatH + (nat - flatH) * t * t);
+  }
   return terrainHeight(wx, wz);
 }
-// Height query — world metres (returns surface Y in metres)
-function groundY(wx, wz) {
-  return voxelH(Math.floor(wx / VOXEL_SIZE), Math.floor(wz / VOXEL_SIZE)) * VOXEL_SIZE;
+
+// matFor — tarmac on runway strip only (not apron)
+const _matForOrig = matFor;
+function matFor(h, vx, vz) {
+  if (vx !== undefined) {
+    const wx = ((vx % WORLD_W) + WORLD_W) % WORLD_W;
+    const wz = ((vz % WORLD_D) + WORLD_D) % WORLD_D;
+    const hit = runwayAt(wx, wz);
+    if (hit?.onStrip) return MAT.tarmac;
+  }
+  return _matForOrig(h);
 }
 
 // ── Materials ──
@@ -1438,6 +1607,9 @@ const MAT = {
   snow:  new THREE.MeshLambertMaterial({ color: 0xeef2f5 }),
   sand:  new THREE.MeshLambertMaterial({ color: 0xd4b87a }),
   water: new THREE.MeshLambertMaterial({ color: 0x2a6fbb, transparent: true, opacity: 0.78 }),
+  tarmac:   new THREE.MeshLambertMaterial({ color: 0x2a2a2e }),
+  rwyline:  new THREE.MeshLambertMaterial({ color: 0xe8e0c0 }),
+  rwythresh: new THREE.MeshLambertMaterial({ color: 0xf0e060 }),
 };
 const BOX = new THREE.BoxGeometry(VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE);
 
@@ -1449,9 +1621,14 @@ function matFor(h) {
   return MAT.grass;
 }
 
+// Height query — world metres
+function groundY(wx, wz) {
+  return voxelH(Math.floor(wx / VOXEL_SIZE), Math.floor(wz / VOXEL_SIZE)) * VOXEL_SIZE;
+}
+
 // Chunk mesh cache — key = "cx,cz" in chunk coords
-const chunkCache  = new Map();   // key → THREE.Group
-const chunkInView = new Set();   // keys currently needed
+const chunkCache  = new Map();
+const chunkInView = new Set();
 
 function chunkKey(cx, cz) { return cx + ',' + cz; }
 
@@ -1466,7 +1643,7 @@ function buildChunk(cx, cz) {
       const wz = vz * VOXEL_SIZE + VOXEL_SIZE / 2;
 
       // Top voxel (surface)
-      const top = new THREE.Mesh(BOX, matFor(h));
+      const top = new THREE.Mesh(BOX, matFor(h, vx, vz));
       top.position.set(wx, h * VOXEL_SIZE - VOXEL_SIZE / 2, wz);
       grp.add(top);
 
@@ -1966,6 +2143,27 @@ function updateAltitudeHUD(dt) {
   vsEl.textContent = (vsRnd >= 0 ? '+' : '') + vsRnd + ' m/s';
   vsEl.className   = vsRnd > 1 ? 'climb' : vsRnd < -1 ? 'desc' : '';
 
+  // ── Ground indicator ──
+  // The tape centre (orange line) = current altitude (altM), at px 110 of 220.
+  // Each metre = TAPE_PX_PER_M px. Ground is surfY metres below altM.
+  const TAPE_H = 220;
+  const groundPxFromCentre = raAlt * TAPE_PX_PER_M;  // how many px below centre
+  const groundBarH = Math.max(0, Math.min(TAPE_H, groundPxFromCentre + TAPE_H / 2));
+  const groundEl = document.getElementById('alt-ground');
+  groundEl.style.height = Math.round(groundBarH) + 'px';
+  // Turn red when very close to ground
+  const danger = raAlt < 50;
+  groundEl.style.background = danger
+    ? 'linear-gradient(to top, rgba(200,40,20,0.85) 0%, rgba(200,40,20,0.3) 70%, transparent 100%)'
+    : 'linear-gradient(to top, rgba(74,124,63,0.85) 0%, rgba(74,124,63,0.3) 70%, transparent 100%)';
+  groundEl.style.borderTopColor = danger ? 'rgba(255,80,60,0.9)' : 'rgba(74,180,63,0.9)';
+  groundEl.style.boxShadow = danger ? '0 -2px 8px rgba(255,60,40,0.5)' : '0 -2px 8px rgba(74,180,63,0.4)';
+
+  // RA readout below tape
+  const raEl = document.getElementById('alt-ra');
+  raEl.textContent = 'GND +' + Math.round(raAlt) + ' m';
+  raEl.style.color = danger ? 'rgba(255,100,80,0.95)' : 'rgba(74,180,63,0.85)';
+
   // ── GPWS ──
   const vs = vertSpeed;   // m/s  (negative = descending)
 
@@ -2128,6 +2326,119 @@ function drawMinimap() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  IN-CLOUD EFFECT
+// ═══════════════════════════════════════════════════════════════════════
+const cloudOverlayEl = document.getElementById('cloud-overlay');
+let _inCloudFrame = 0;
+
+function updateInCloud() {
+  // Check every 10 frames — cloud positions don't change rapidly
+  if (++_inCloudFrame % 10 !== 0) return;
+  if (!cloudGroup || !cloudGroup.userData.clouds) return;
+
+  // Clouds are stored as offsets from player pos (cloudGroup.position = pos)
+  // So player is at offset 0,0,0 — test if inside any cloud ellipsoid
+  let inside = false;
+  for (const c of cloudGroup.userData.clouds) {
+    const ex = c.px / (c.rx * 1.1);
+    const ey = c.py / (c.ry * 1.2);
+    const ez = c.pz / (c.rz * 1.1);
+    if (ex*ex + ey*ey + ez*ez < 1.0) { inside = true; break; }
+  }
+
+  cloudOverlayEl.classList.toggle('inside', inside);
+
+  // Also tighten fog when inside a cloud
+  if (inside) {
+    scene.fog.near = VOXEL_SIZE * 6;
+    scene.fog.far  = VOXEL_SIZE * 25;
+  } else {
+    scene.fog.near = FOG_NEAR;
+    scene.fog.far  = FOG_FAR;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RUNWAYS
+// ═══════════════════════════════════════════════════════════════════════
+function buildRunways() {
+  initRunwayHeights();
+
+  for (let i = 0; i < RUNWAY_DEFS.length; i++) {
+    const rwy = RUNWAY_DEFS[i];
+    const flatH   = Math.max(SEA_LEVEL + 1, runwayFlatH[i]);
+    const groundY = flatH * VOXEL_SIZE;         // top of tarmac voxel
+    const markY   = groundY + VOXEL_SIZE * 0.52; // float markings just above
+    const rad     = rwy.hdg * Math.PI / 180;
+    const cos     = Math.cos(rad), sin = Math.sin(rad);
+
+    // World centre of runway in metres
+    const cx = rwy.cvx * VOXEL_SIZE;
+    const cz = rwy.cvz * VOXEL_SIZE;
+
+    // Helper: place a flat slab (thin box) in runway-local coords
+    function placeSlab(along, across, lenM, widM, mat) {
+      const geo  = new THREE.BoxGeometry(widM, 0.25, lenM);
+      const mesh = new THREE.Mesh(geo, mat);
+      // Rotate local to world
+      const wx = cx + along * sin + across * cos;
+      const wz = cz + along * cos - across * sin;
+      mesh.position.set(wx, markY, wz);
+      mesh.rotation.y = -rad;
+      scene.add(mesh);
+    }
+
+    const lenM = rwy.len  * VOXEL_SIZE;
+    const widM = rwy.wid  * VOXEL_SIZE;
+    const stripeW = VOXEL_SIZE * 0.6;
+    const stripeL = VOXEL_SIZE * 3;
+    const gap     = VOXEL_SIZE * 2;
+
+    // ── Centreline dashes ──
+    const nDashes = Math.floor(rwy.len / 6) - 2;
+    for (let d = -Math.floor(nDashes/2); d <= Math.floor(nDashes/2); d++) {
+      placeSlab(d * (stripeL + gap) * 0.5, 0, stripeL, stripeW, MAT.rwyline);
+    }
+
+    // ── Threshold bars (both ends) ──
+    const threshBars = 6;
+    const threshBarW = (widM * 0.8) / (threshBars * 2 - 1);
+    for (let b = 0; b < threshBars; b++) {
+      const offset = (b - (threshBars-1)/2) * threshBarW * 2;
+      // Near end
+      placeSlab(-(rwy.len/2 - 4) * VOXEL_SIZE, offset, VOXEL_SIZE * 6, threshBarW, MAT.rwythresh);
+      // Far end
+      placeSlab( (rwy.len/2 - 4) * VOXEL_SIZE, offset, VOXEL_SIZE * 6, threshBarW, MAT.rwythresh);
+    }
+
+    // ── Runway edge lines ──
+    for (const side of [-1, 1]) {
+      placeSlab(0, side * (rwy.wid/2 - 0.3) * VOXEL_SIZE, lenM * 0.96, stripeW * 0.5, MAT.rwyline);
+    }
+
+    // ── PAPI lights (4 red/white boxes on one side) ──
+    const papiY = markY + 0.4;
+    for (let p = 0; p < 4; p++) {
+      const along = -(rwy.len/2 - 8) * VOXEL_SIZE;
+      const across = (rwy.wid/2 + 1.5 + p * 1.2) * VOXEL_SIZE;
+      const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+      const col = p < 2 ? 0xff2200 : 0xffffff;
+      const m   = new THREE.MeshLambertMaterial({ color: col, emissive: col, emissiveIntensity: 0.8 });
+      const mesh = new THREE.Mesh(geo, m);
+      const wx = cx + along * sin + across * cos;
+      const wz = cz + along * cos - across * sin;
+      mesh.position.set(wx, papiY, wz);
+      scene.add(mesh);
+    }
+
+    // ── Runway number sign (simple coloured slab) ──
+    const rwyNum = String(Math.round(((rwy.hdg + 360) % 360) / 10)).padStart(2,'0');
+    // Use a bright slab as placeholder — text rendering in Three.js r128 needs font loader
+    placeSlab(-(rwy.len/2 - 2) * VOXEL_SIZE, 0, VOXEL_SIZE * 2, VOXEL_SIZE * 2, MAT.rwythresh);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  GAME LOOP
 // ═══════════════════════════════════════════════════════════════════════
 let lastTime = null;
@@ -2147,6 +2458,9 @@ function frame(ts) {
   aircraft.position.copy(pos);
   aircraft.quaternion.copy(aircraftQuat);
 
+  // Clouds follow player position (no rotation — fixed in world orientation)
+  if (cloudGroup) cloudGroup.position.copy(pos);
+
   // Sky dome follows aircraft (always centred on player)
   skyDome.position.copy(pos);
 
@@ -2155,6 +2469,7 @@ function frame(ts) {
 
   updateAllInstruments();
   updateAltitudeHUD(dt);
+  updateInCloud();
   drawMinimap();
   renderer.render(scene, camera);
 }
@@ -2183,6 +2498,7 @@ function startSim() {
   });
 
   document.getElementById('start-overlay').style.display = 'none';
+  buildRunways();
   streamTerrain(pos.x, pos.z);
   running  = true;
   lastTime = null;
