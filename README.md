@@ -21,3 +21,7 @@ Choose terrain ruggedness (Flat to Alpine), sea level (Arid to Ocean), time of d
 
 # Controls
 Gamepad or keyboard. Left stick: roll + pitch. Right stick: freelook camera. RB/LB: rudder. RT/LT: throttle.
+
+# License
+Copyright (C) 2026 Antonio Gallego de Torres
+This project is licensed under the GNU Affero General Public License v3.0 — see the LICENSE file for details.
